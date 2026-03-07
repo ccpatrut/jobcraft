@@ -11,7 +11,7 @@ def generate_cover_letter(
     profile: UserProfile,
     job: JobListing,
     preferences: UserPreferences,
-    model: str = "llama3.2",
+    model: str = "qwen3:8b",
     host: Optional[str] = None,
 ) -> str:
     """
@@ -30,6 +30,7 @@ def generate_cover_letter(
 
 CANDIDATE:
 Name: {profile.name or "The candidate"}
+{f"Location: {profile.location}" if profile.location else ""}
 Summary: {profile.summary or "Experienced professional"}
 Key skills: {", ".join(profile.skills[:10]) if profile.skills else "Various"}
 Relevant experience: {"; ".join(profile.experience[:3]) if profile.experience else "Professional experience"}
@@ -46,7 +47,8 @@ INSTRUCTIONS:
 - Connect their experience to the job requirements.
 - End with a clear call to action (e.g., requesting an interview).
 - Do not use placeholder text like [Your Name] - use the candidate's name.
-- Output ONLY the letter, no subject line or meta-commentary."""
+- Output ONLY the letter body, no subject line or meta-commentary.
+- Format: Start with "Dear Hiring Manager," or "Dear [Company] Team," and end with "Sincerely," followed by the candidate's name."""
 
     client = ollama.Client(host=host) if host else ollama.Client()
     response = client.chat(
@@ -54,4 +56,9 @@ INSTRUCTIONS:
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0.7},
     )
-    return response["message"]["content"].strip()
+    content = response["message"]["content"].strip()
+
+    # Append job link so the candidate knows where to apply
+    if job.url:
+        content += f"\n\n---\n**Apply for this position:** [{job.title} at {job.company}]({job.url})"
+    return content

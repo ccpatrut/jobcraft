@@ -13,12 +13,16 @@ def fetch_adzuna_jobs(
     location: str = "",
     country: str = "gb",
     results_per_page: int = 20,
+    distance_km: int = 0,
     app_id: Optional[str] = None,
     app_key: Optional[str] = None,
 ) -> list[JobListing]:
     """
     Fetch jobs from Adzuna API.
-    Get free API keys at: https://developer.adzuna.com/signup
+
+    Args:
+        distance_km: Radius in km around `location`. Only used when location is set.
+                     0 means Adzuna default (exact area match).
     """
     app_id = app_id or os.environ.get("ADZUNA_APP_ID")
     app_key = app_key or os.environ.get("ADZUNA_APP_KEY")
@@ -33,12 +37,14 @@ def fetch_adzuna_jobs(
     params = {
         "app_id": app_id,
         "app_key": app_key,
-        "what": search_query or "developer",  # fallback
+        "what": search_query or "jobs",
         "results_per_page": results_per_page,
         "content-type": "application/json",
     }
     if location:
         params["where"] = location
+        if distance_km > 0:
+            params["distance"] = distance_km
 
     resp = requests.get(base_url, params=params, timeout=15)
     resp.raise_for_status()

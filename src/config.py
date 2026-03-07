@@ -45,7 +45,7 @@ def _default_config() -> dict:
             "focus_areas": [],
         },
         "job_search": {"country": "gb", "max_results": 50, "keywords": ""},
-        "ai": {"model": "llama3.2", "temperature": 0.7, "timeout": 120},
+        "ai": {"model": "qwen3:8b", "temperature": 0.7, "timeout": 120},
     }
 
 

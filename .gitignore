@@ -14,3 +14,6 @@ cv_input/*
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.db
+*.db-wal
+*.db-shm

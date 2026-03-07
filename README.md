@@ -52,7 +52,7 @@ pip install -r requirements.txt
 
 ```bash
 # Download from https://ollama.com, then:
-ollama pull llama3.2
+ollama pull qwen3:8b
 ollama serve   # Usually runs automatically in background
 ```
 
@@ -95,7 +95,7 @@ Edit `config.yaml` to adjust:
 | `preferences.tone` | `formal` \| `semi-formal` \| `casual` \| `enthusiastic` \| `professional` |
 | `preferences.style` | `concise` \| `detailed` \| `balanced` |
 | `job_search.country` | Adzuna country code (`gb`, `us`, `de`, etc.) |
-| `ai.model` | Ollama model (e.g. `llama3.2`, `mistral`, `llama2`) |
+| `ai.model` | Ollama model (e.g. `qwen3:8b`, `mistral`, `phi4`) |
 
 ## Project structure
 
@@ -139,7 +139,7 @@ Add API keys as **GitHub Secrets** (Settings → Secrets) if you run workflows t
 
 ## Troubleshooting
 
-- **"Could not connect to Ollama"** – Run `ollama serve` and ensure a model is pulled (`ollama pull llama3.2`).
+- **"Could not connect to Ollama"** – Run `ollama serve` and ensure a model is pulled (`ollama pull qwen3:8b`).
 - **"Adzuna API credentials required"** – Add `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` to `.env`.
 - **No documents found** – Ensure PDF or `.docx` files are in `cv_input/` (not `.doc`).
-- **Slow responses** – Larger models are slower. Try `ollama pull llama3.2:1b` for a lighter model.
+- **Slow responses** – Larger models are slower. Try `ollama pull qwen3:8b` for a lighter model.
