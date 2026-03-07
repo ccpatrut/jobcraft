@@ -4,11 +4,13 @@ AI-powered job matching and tailored CV/cover letter generation. Uses **Ollama**
 
 ## What it does
 
-1. **Reads your CVs** – Drops PDF and Word documents from a directory
-2. **Extracts your profile** – Uses Ollama to pull skills, experience, certifications
-3. **Fetches jobs** – Pulls listings from Adzuna (free API)
-4. **Ranks matches** – AI selects the top 5 jobs that fit you best
-5. **Generates output** – Creates 5 tailored CVs and 5 cover letters (one per job)
+1. **Reads your CVs** – Loads PDF and Word documents from a local directory
+2. **Extracts your profile** – Uses Ollama to pull skills, experience, languages, certifications
+3. **Fetches jobs** – Pulls listings from Adzuna API with multi-query, multi-lingual search
+4. **Filters & ranks** – Regex + AI language validation, then AI-powered ranking by fit
+5. **Generates output** – Creates 10 tailored CVs and 10 cover letters as Markdown + PDF
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for a full architecture overview.
 
 ## Prerequisites
 
@@ -101,41 +103,35 @@ Edit `config.yaml` to adjust:
 
 ```
 job-finder/
-├── cv_input/          # ← Drop your CVs here
-├── output/            # ← Generated CVs and letters
-├── config.yaml        # User preferences
-├── .env               # API keys (create from .env.example)
-├── main.py            # Entry point
-├── pyproject.toml     # Project config (uv/pip)
-├── uv.lock            # Locked deps (uv)
+├── cv_input/              # Drop your CVs here (PDF, Word)
+├── output/                # Generated CVs and cover letters
+├── config.yaml            # All user-facing configuration
+├── .env                   # API keys (create from .env.example)
+├── main.py                # Orchestrator / entry point
+├── pyproject.toml         # Dependencies (uv/pip)
+├── job_finder.db          # SQLite cache (auto-created)
 └── src/
-    ├── document_loader.py      # PDF/Word extraction
-    ├── profile_extractor.py    # Ollama CV parsing
-    ├── job_fetcher.py         # Adzuna API
-    ├── job_matcher.py         # AI ranking
-    ├── cv_generator.py        # Tailored CVs
-    └── cover_letter_generator.py
+    ├── models.py               # Pydantic data models
+    ├── config.py               # YAML + env config loader
+    ├── document_loader.py      # PDF/Word text extraction
+    ├── profile_extractor.py    # AI profile extraction (Ollama)
+    ├── query_translator.py     # Multi-lingual query translation
+    ├── job_fetcher.py          # Adzuna API client
+    ├── job_matcher.py          # Language filter + AI ranking + AI validation
+    ├── cv_generator.py         # Tailored CV generation (Ollama)
+    ├── cover_letter_generator.py  # Cover letter generation (Ollama)
+    ├── pdf_utils.py            # Markdown → PDF renderer (fpdf2)
+    └── database.py             # SQLite caching layer
 ```
 
-## GitHub & CI
+## CI
 
-The project includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push and pull request to `main` or `master`:
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 
 - **Lint** – Ruff check and format
-- **Verify** – Imports, config loading, document loader
+- **Verify** – Import validation, config loading, document loader
 
-To push to GitHub:
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/job-finder.git
-git push -u origin main
-```
-
-Add API keys as **GitHub Secrets** (Settings → Secrets) if you run workflows that need them. The current CI does not require secrets (it only verifies imports and config).
+The CI workflow does not require API secrets.
 
 ## Troubleshooting
 
