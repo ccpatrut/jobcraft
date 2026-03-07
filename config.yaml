@@ -1,0 +1,32 @@
+# Job Finder - User Configuration
+
+# Path to directory containing your CVs (PDF, Word)
+# Drop all your CVs, certifications, experience documents here
+cv_input_dir: "./cv_input"
+
+# Output directory for generated tailored CVs and cover letters
+output_dir: "./output"
+
+# User preferences - affects tone and style of generated content
+preferences:
+  # Tone: formal | semi-formal | casual | enthusiastic | professional
+  tone: "professional"
+  
+  # Writing style: concise | detailed | balanced
+  style: "balanced"
+  
+  # Focus areas to emphasize (optional, from your CV)
+  # e.g. ["leadership", "technical skills", "remote work experience"]
+  focus_areas: []
+
+# Job search settings
+job_search:
+  country: "gb"  # Adzuna country code
+  max_results: 50  # Jobs to fetch before filtering
+  keywords: ""  # Optional: additional keywords (leave empty to derive from CV)
+
+# Ollama / AI settings
+ai:
+  model: "llama3.2"  # Model to use - run: ollama pull llama3.2
+  temperature: 0.7   # Lower = more consistent, Higher = more creative
+  timeout: 120       # Seconds to wait for AI response
