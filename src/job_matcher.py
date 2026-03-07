@@ -259,6 +259,9 @@ def ai_validate_and_filter(
 
     Returns (filtered_jobs, total_removed, learned_phrases).
     """
+    import sys
+    import time
+
     if not profile.languages:
         return jobs, 0, []
 
@@ -270,9 +273,18 @@ def ai_validate_and_filter(
 
     for round_num in range(1, max_rounds + 1):
         flagged_indices = []
+        print(f"  Round {round_num}/{max_rounds}: checking {len(jobs)} jobs...", flush=True)
+        t0 = time.time()
 
         for idx, job in enumerate(jobs):
-            # First apply any newly learned patterns
+            elapsed = time.time() - t0
+            sys.stdout.write(
+                f"\r  Round {round_num}: [{idx + 1}/{len(jobs)}] "
+                f"{elapsed:.0f}s — {job.title[:40]}"
+                + " " * 20
+            )
+            sys.stdout.flush()
+
             text = f"{job.title} {job.description}"
             blocked = False
             for pattern, lang_code in learned_patterns:
@@ -286,7 +298,6 @@ def ai_validate_and_filter(
             if blocked:
                 continue
 
-            # Then ask the AI
             failure = _ai_validate_job(job, profile, client, model)
             if failure:
                 flagged_indices.append(idx)
@@ -304,16 +315,24 @@ def ai_validate_and_filter(
                             phrase, lang_code, round_num,
                         )
 
+        elapsed = time.time() - t0
+        print(
+            f"\r  Round {round_num} done — {elapsed:.1f}s, "
+            f"{len(flagged_indices)} flagged" + " " * 30,
+            flush=True,
+        )
+
         if not flagged_indices:
+            print("  No violations found — validation complete.", flush=True)
             break
 
-        # Remove flagged jobs
         flagged_set = set(flagged_indices)
         removed_jobs = [jobs[i] for i in flagged_indices]
         jobs = [j for i, j in enumerate(jobs) if i not in flagged_set]
         total_removed += len(removed_jobs)
 
         for rj in removed_jobs:
+            print(f"    ✗ {rj.title} @ {rj.company}", flush=True)
             logger.warning("AI excluded (round %d): %s @ %s", round_num, rj.title, rj.company)
 
         if not jobs:
@@ -349,13 +368,16 @@ def rank_jobs_with_ollama(
     """
     Use Ollama to rank jobs by fit and return top N.
     """
-    jobs = jobs[:max_jobs_to_rank]  # Limit to avoid token overflow
+    import sys
+    import time
+
+    jobs = jobs[:max_jobs_to_rank]
     if len(jobs) <= top_n:
         return jobs[:top_n]
 
+    print(f"  Preparing {len(jobs)} jobs for ranking...", flush=True)
     profile_summary = build_profile_summary(profile)
 
-    # Build compact job list for the prompt (shorten descriptions)
     job_lines = []
     for i, j in enumerate(jobs):
         desc = (j.description or "")[:200].replace("\n", " ")
@@ -386,17 +408,35 @@ Respond with ONLY the indices of the top {top_n} best-matching jobs, one per lin
 """
 
     client = ollama.Client(host=host) if host else ollama.Client()
-    response = client.chat(
+
+    print(f"  Sending {len(jobs)} jobs to {model} for ranking...", flush=True)
+    t0 = time.time()
+
+    # Use streaming to show progress while the model thinks
+    content_parts = []
+    token_count = 0
+    stream = client.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0.3},
+        stream=True,
     )
+    for chunk in stream:
+        token = chunk.get("message", {}).get("content", "")
+        content_parts.append(token)
+        token_count += 1
+        elapsed = time.time() - t0
+        if token_count % 20 == 0:
+            sys.stdout.write(f"\r  Ranking in progress... {elapsed:.0f}s elapsed, {token_count} tokens received")
+            sys.stdout.flush()
 
-    content = response["message"]["content"].strip()
+    elapsed = time.time() - t0
+    print(f"\r  Ranking complete — {elapsed:.1f}s, {token_count} tokens" + " " * 20, flush=True)
+
+    content = "".join(content_parts).strip()
     indices = []
     for line in content.split("\n"):
         line = line.strip().strip(".-)")
-        # Extract first number on each line
         for word in line.split():
             if word.isdigit():
                 idx = int(word)
@@ -406,7 +446,6 @@ Respond with ONLY the indices of the top {top_n} best-matching jobs, one per lin
         if len(indices) >= top_n:
             break
 
-    # Build result preserving order
     result = []
     seen = set()
     for idx in indices:
@@ -414,11 +453,11 @@ Respond with ONLY the indices of the top {top_n} best-matching jobs, one per lin
             result.append(jobs[idx])
             seen.add(idx)
 
-    # Pad with remaining if we got fewer
     for j in jobs:
         if len(result) >= top_n:
             break
         if j not in result:
             result.append(j)
 
+    print(f"  Top {len(result[:top_n])} matches selected", flush=True)
     return result[:top_n]

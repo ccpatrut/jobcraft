@@ -96,6 +96,7 @@ Contact: [email] | [phone]
 ---
 - Use ## for main sections, ### for each role under Experience, - for Skills/Education/Certifications/Languages, * for Experience bullets.
 - For Languages, preserve the exact proficiency levels from the profile (e.g., "English - Fluent", "German - Intermediate"). Do not change or omit the levels.
+- If the candidate has NO certifications (listed as "N/A" or empty), OMIT the ## Certifications section entirely. Do not include it at all.
 - Do not add preamble, explanation, or anything outside the structure above."""
 
     client = ollama.Client(host=host) if host else ollama.Client()

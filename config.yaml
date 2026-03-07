@@ -46,7 +46,7 @@ job_search:
   #   "auto"          - English first, then local languages if not enough results (default)
   #   "english_only"  - search only in English, skip local translations
   #   "local_first"   - local languages first, then English as fallback
-  language: "english_only"
+  language: "auto"
 
   # Exclude jobs whose title or description contains text in these languages.
   # Use ISO language codes: de, fr, it, nl, es, pt, pl
@@ -67,6 +67,6 @@ job_search:
 
 # Ollama / AI settings
 ai:
-  model: "qwen2.5:7b" # Model to use - run: ollama pull qwen2.5:7b
+  model: "qwen3:8b" # Model to use - run: ollama pull qwen3:8b
   temperature: 0.7 # Lower = more consistent, Higher = more creative
   timeout: 120 # Seconds to wait for AI response

@@ -213,6 +213,51 @@ def get_all_jobs(
     return [dict(r) for r in rows]
 
 
+def search_cached_jobs(
+    conn: sqlite3.Connection,
+    keywords: list[str],
+    country: str = "",
+    limit: int = 50,
+) -> list[JobListing]:
+    """Search cached jobs by keyword match against title and description.
+
+    Returns JobListing objects for jobs where ANY keyword appears
+    in the title or description, ordered by most recent first.
+    """
+    if not keywords:
+        return []
+
+    conditions = []
+    params: list = []
+    for kw in keywords:
+        conditions.append("(title LIKE ? OR description LIKE ?)")
+        wildcard = f"%{kw}%"
+        params.extend([wildcard, wildcard])
+
+    where = " OR ".join(conditions)
+    query = f"SELECT * FROM jobs WHERE ({where})"
+    if country:
+        query += " AND country = ?"
+        params.append(country)
+    query += " ORDER BY fetched_at DESC LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    results = []
+    for row in rows:
+        results.append(JobListing(
+            title=row["title"],
+            company=row["company"],
+            url=row["url"],
+            description=row["description"] or "",
+            location=row["location"] or "",
+            salary=row["salary"] or "",
+            contract_type=row["contract_type"] or "",
+            source=row["source"] or "adzuna",
+        ))
+    return results
+
+
 def update_job_status(conn: sqlite3.Connection, job_url: str, status: str) -> None:
     """Update the status of a job (new, applied, interview, rejected, saved)."""
     conn.execute("UPDATE jobs SET status = ? WHERE url = ?", (status, job_url))

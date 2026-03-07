@@ -240,6 +240,21 @@ def markdown_to_pdf(md_content: str, pdf_path: str | Path) -> bool:
                         pdf.render_contact(contact)
                     continue
                 else:
+                    # Look ahead: skip sections whose only content is N/A or empty
+                    next_lines = []
+                    j = i + 1
+                    while j < len(content_lines):
+                        nxt = content_lines[j].strip()
+                        if nxt.startswith("## ") or nxt.startswith("---"):
+                            break
+                        if nxt:
+                            bullet = nxt.lstrip("-* ").strip()
+                            next_lines.append(bullet.lower())
+                        j += 1
+                    if all(t in ("n/a", "none", "") for t in next_lines) or not next_lines:
+                        i = j
+                        continue
+
                     pdf.render_section_header(section_name)
                     i += 1
                     continue
@@ -261,8 +276,6 @@ def markdown_to_pdf(md_content: str, pdf_path: str | Path) -> bool:
                         pdf.render_experience_title(degree, dates)
                     else:
                         pdf.render_bullet(text)
-                elif current_section == "certifications" and text.lower() in ("n/a", "none", ""):
-                    pdf.render_paragraph("N/A")
                 else:
                     pdf.render_bullet(text)
                 i += 1

@@ -12,6 +12,7 @@ Ensure Ollama is running locally (ollama serve) and you have pulled a model:
 
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from src.database import (
     save_generated_output,
     save_jobs,
     save_profile,
+    search_cached_jobs,
 )
 from src.document_loader import load_documents_from_dir
 from src.job_fetcher import fetch_adzuna_jobs
@@ -81,89 +83,128 @@ def _extract_role_from_text(text: str) -> str | None:
     return None
 
 
-def _build_search_query(keywords: str, profile) -> str:
-    """Build a job search query from explicit keywords or from the profile."""
+def _clean_title(title: str) -> str:
+    """Strip parenthetical suffixes, ampersands, and excess whitespace."""
+    title = re.sub(r"\s*\([^)]*\)\s*", " ", title).strip()
+    return re.sub(r"\s+", " ", title)
+
+
+def _split_compound_title(title: str) -> list[str]:
+    """Split compound titles into broader variants.
+
+    "Solution & Integration Architect" -> ["Solution & Integration Architect",
+     "Solution Architect", "Integration Architect"]
+    """
+    variants = [title]
+    # Split on & or /
+    if "&" in title or "/" in title:
+        parts = re.split(r"\s*[&/]\s*", title)
+        if len(parts) >= 2:
+            # Find the trailing role word (e.g. "Architect", "Engineer", "Manager")
+            last_words = title.rsplit(None, 1)
+            role_suffix = last_words[-1] if len(last_words) > 1 else ""
+            for part in parts:
+                part = part.strip()
+                if not part:
+                    continue
+                # If the part doesn't already end with the role suffix, append it
+                if role_suffix and not part.lower().endswith(role_suffix.lower()):
+                    variants.append(f"{part} {role_suffix}")
+                else:
+                    variants.append(part)
+    return variants
+
+
+def _build_search_queries(keywords: str, profile) -> list[str]:
+    """Build multiple search queries from explicit keywords or from the profile.
+
+    Returns a list of queries ordered from most specific to broadest.
+    """
     if keywords:
-        return keywords
+        return [keywords]
+
+    seen: set[str] = set()
+    queries: list[str] = []
+
+    def _add(q: str) -> None:
+        q = q.strip()
+        if q and q.lower() not in seen and len(q) > 2:
+            seen.add(q.lower())
+            queries.append(q)
 
     # 1. Extract job titles from structured experience
     job_titles = []
     for exp in profile.experience[:5]:
         if " at " in exp:
             title = exp.split(" at ")[0].strip()
-            if title and len(title) < 60:
-                job_titles.append(title)
         elif " | " in exp:
             title = exp.split(" | ")[0].strip()
-            if title and len(title) < 60:
-                job_titles.append(title)
+        else:
+            continue
+        if title and len(title) < 60:
+            job_titles.append(_clean_title(title))
 
-    if job_titles:
-        return job_titles[0]
+    # Add each title + its broader variants
+    for title in job_titles[:3]:
+        for variant in _split_compound_title(title):
+            _add(variant)
 
     # 2. Extract role from profile summary
     if profile.summary:
         role = _extract_role_from_text(profile.summary)
         if role:
-            return role
+            _add(role)
 
     # 3. Scan the top of the raw CV text for a job title
-    #    Many CVs start with "Name\nJob Title" or have the role near the top.
     if profile.raw_text:
         header = profile.raw_text[:500]
         role = _extract_role_from_text(header)
         if role:
-            return role
+            _add(role)
 
-    # 4. Fall back to the single most job-relevant skill
+    # 4. Add top technical skills as fallback queries
     generic_words = {
-        "leadership",
-        "communication",
-        "teamwork",
-        "collaboration",
-        "organisation",
-        "organization",
-        "problem solving",
-        "critical thinking",
-        "time management",
-        "motivation",
-        "adaptability",
-        "creativity",
-        "flexibility",
-        "attention to detail",
-        "digitalisation",
-        "digitalization",
-        "branding",
-        "cross organization",
-        "cross organizational",
+        "leadership", "communication", "teamwork", "collaboration",
+        "organisation", "organization", "problem solving", "critical thinking",
+        "time management", "motivation", "adaptability", "creativity",
+        "flexibility", "attention to detail", "digitalisation",
+        "digitalization", "branding", "cross organization",
+        "cross organizational", "engineering", "operating environment",
     }
     useful_skills = [
-        s for s in profile.skills if s.lower() not in generic_words and len(s) < 40
+        s for s in (profile.skills or [])
+        if s.lower() not in generic_words and len(s) < 40
     ]
-    if useful_skills:
-        logger.warning(
-            "Could not extract a job title from experience, summary, or CV header. "
-            "Falling back to skill: '%s'",
-            useful_skills[0],
-        )
-        return useful_skills[0]
+    for skill in useful_skills[:3]:
+        _add(skill)
 
-    if profile.skills:
-        logger.warning(
-            "All extracted skills are generic. Falling back to first skill: '%s'. "
-            "Consider setting 'keywords' in config.yaml for better results.",
-            profile.skills[0],
-        )
-        return profile.skills[0]
+    if not queries:
+        if profile.skills:
+            logger.warning(
+                "Could not derive specific queries. Falling back to skill: '%s'",
+                profile.skills[0],
+            )
+            _add(profile.skills[0])
+        else:
+            logger.warning(
+                "No skills or job titles found. Using generic query 'jobs'. "
+                "Set 'keywords' in config.yaml for better results."
+            )
+            _add("jobs")
 
-    logger.warning(
-        "No skills or job titles found in profile. Using generic query 'jobs'. "
-        "Set 'keywords' in config.yaml to specify a role."
-    )
-    return "jobs"
+    return queries
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Job Finder - AI-Powered Job Matching")
+    parser.add_argument(
+        "--fresh", action="store_true",
+        help="Ignore cached profile and re-extract from CV",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.WARNING,
         format="%(levelname)s: %(message)s",
@@ -211,13 +252,19 @@ def main():
 
     # 2. Extract profile (use cache if CV unchanged)
     print("\n[2/6] Extracting profile...")
-    profile = get_cached_profile(conn, combined_text)
-    if profile:
-        print("  Using cached profile (CV unchanged).")
+    profile = None
+    if args.fresh:
+        print("  --fresh flag set: skipping cache, re-extracting from CV.")
     else:
-        print("  Calling Ollama (this may take a minute)...")
+        profile = get_cached_profile(conn, combined_text)
+        if profile:
+            print("  Using cached profile (CV text unchanged).")
+            print("  Tip: run with --fresh to force re-extraction.")
+    if not profile:
+        print("  Calling Ollama for profile extraction (this may take a minute)...")
         try:
             profile = extract_profile_with_ollama(combined_text, model=model, host=ollama_host)
+            print("  Profile extracted from Ollama (fresh).")
         except Exception as e:
             print("  ERROR: Could not connect to Ollama. Is it running? Try: ollama serve")
             print("  Also ensure you have pulled a model: ollama pull", model)
@@ -243,11 +290,13 @@ def main():
         print("  Summary:", profile.summary[:120] + ("..." if len(profile.summary) > 120 else ""))
 
     # 3. Build search queries (English + national languages) and fetch jobs
-    base_query = _build_search_query(keywords, profile)
+    base_queries = _build_search_queries(keywords, profile)
     lang_info = get_country_languages_display(country)
     country_name = get_country_name(country)
-    print(f"\n[3/6] Fetching jobs for {country_name} ({lang_info})")
-    print(f"  Base query: {base_query}")
+    print(f"\n[3/6] Fetching jobs from Adzuna API (live) for {country_name} ({lang_info})")
+    print(f"  Search queries ({len(base_queries)}):")
+    for bq in base_queries:
+        print(f"    • {bq}")
     if locations:
         loc_display = ", ".join(locations)
         print(f"  Locations: {loc_display} ({radius_km} km radius)")
@@ -255,17 +304,24 @@ def main():
     if exclude_languages:
         print(f"  Excluding languages: {', '.join(exclude_languages)}")
 
-    if language_strategy == "english_only":
-        queries = [base_query]
-        print(f"    -> {base_query} (English only)")
-    else:
-        print("  Translating query to local languages...")
-        queries = get_localized_queries(
-            base_query, country, model=model, host=ollama_host,
-            language_strategy=language_strategy,
-        )
-        for q in queries:
-            print(f"    -> {q}")
+    # For each base query, expand with local-language translations
+    all_queries: list[str] = []
+    seen_queries: set[str] = set()
+    for bq in base_queries:
+        if language_strategy == "english_only":
+            expanded = [bq]
+        else:
+            expanded = get_localized_queries(
+                bq, country, model=model, host=ollama_host,
+                language_strategy=language_strategy,
+            )
+        for eq in expanded:
+            if eq.lower() not in seen_queries:
+                seen_queries.add(eq.lower())
+                all_queries.append(eq)
+
+    if len(all_queries) > len(base_queries):
+        print(f"  Expanded to {len(all_queries)} queries (with translations)")
 
     # Search locations in order, then fall back to country-wide
     search_locations = locations + [""] if locations else [""]
@@ -277,7 +333,7 @@ def main():
         if len(jobs) >= max_results:
             break
         loc_label = loc or "all " + country_name
-        for q in queries:
+        for q in all_queries:
             if len(jobs) >= max_results:
                 break
             try:
@@ -317,11 +373,33 @@ def main():
         if filtered:
             print(f"  Filtered out {filtered} jobs in excluded languages")
 
-    new_count = save_jobs(conn, jobs, search_query=base_query, country=country)
-    print(f"  Total: {len(jobs)} unique jobs ({new_count} new to database)")
+    new_count = save_jobs(conn, jobs, search_query=base_queries[0], country=country)
+    print(f"  Total: {len(jobs)} unique jobs from API ({new_count} new saved to database)")
+
+    # Fallback to cached jobs if API returned too few results
+    if len(jobs) < 5:
+        search_terms = list(base_queries)
+
+        if jobs:
+            print(f"  Only {len(jobs)} jobs from API — checking database for more...")
+        else:
+            print("  No jobs from API — searching database cache...")
+
+        cached = search_cached_jobs(conn, search_terms, country=country, limit=max_results)
+        seen_urls = {j.url for j in jobs}
+        added = 0
+        for cj in cached:
+            if cj.url not in seen_urls:
+                jobs.append(cj)
+                seen_urls.add(cj.url)
+                added += 1
+        if added:
+            print(f"  Found {added} additional jobs from database cache (total: {len(jobs)})")
+        else:
+            print("  No additional matches found in database cache.")
 
     if not jobs:
-        print("  No jobs found. Try adjusting keywords or location/language in config.yaml.")
+        print("  No jobs found (API or cache). Try adjusting keywords or location/language in config.yaml.")
         return 1
 
     # 4. Filter by language requirements, then rank
