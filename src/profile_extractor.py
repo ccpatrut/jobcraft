@@ -88,8 +88,8 @@ Output schema:
 
 Extraction guidance:
 - Experience:
-  - Extract job title, company, dates, location, and a brief description.
-  - Keep descriptions short and factual.
+  - Extract job title, company, dates, location, and a concise description of key responsibilities and achievements.
+  - Keep descriptions factual and include metrics where present.
   - If dates are partial, keep them as written.
   - If company or role is unclear, use an empty string for that field.
 - Education:
@@ -139,7 +139,7 @@ def _format_experience_item(item: Any) -> str:
         parts.append(loc)
     desc = item.get("description", "")
     if desc:
-        parts.append(desc[:150] + ("..." if len(desc) > 150 else ""))
+        parts.append(desc)
     return " | ".join(parts) if parts else " | ".join(f"{k}: {v}" for k, v in item.items() if v)
 
 

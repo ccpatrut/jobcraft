@@ -26,29 +26,34 @@ def generate_cover_letter(
     }
     tone = tone_guide.get(preferences.tone.lower(), tone_guide["professional"])
 
-    prompt = f"""You are an expert at writing cover letters. Write a compelling letter of intention (cover letter) for this candidate applying to this job.
+    raw_cv = (profile.raw_text or "")[:4000]
 
-CANDIDATE:
+    prompt = f"""You are a senior career consultant who writes cover letters that get interviews. Your job is to make the candidate sound compelling, confident, and perfectly matched for this role.
+
+CANDIDATE'S BACKGROUND:
+\"\"\"
+{raw_cv}
+\"\"\"
+
 Name: {profile.name or "The candidate"}
 {f"Location: {profile.location}" if profile.location else ""}
-Summary: {profile.summary or "Experienced professional"}
-Key skills: {", ".join(profile.skills[:10]) if profile.skills else "Various"}
-Relevant experience: {"; ".join(profile.experience[:3]) if profile.experience else "Professional experience"}
+Languages: {", ".join(profile.languages) if profile.languages else "N/A"}
 
-JOB:
+TARGET ROLE:
 Title: {job.title}
 Company: {job.company}
-Key details: {job.description[:600]}
+Description: {job.description[:800]}
 
 INSTRUCTIONS:
 - {tone}
-- Length: 3-4 short paragraphs.
-- Open with a strong hook about why they're interested in this specific role and company.
-- Connect their experience to the job requirements.
-- End with a clear call to action (e.g., requesting an interview).
-- Do not use placeholder text like [Your Name] - use the candidate's name.
-- Output ONLY the letter body, no subject line or meta-commentary.
-- Format: Start with "Dear Hiring Manager," or "Dear [Company] Team," and end with "Sincerely," followed by the candidate's name."""
+- Write 3-4 compelling paragraphs.
+- Opening: a confident, specific hook about why this candidate is drawn to THIS role at THIS company. Not generic — reference something concrete from the job description.
+- Body: connect the candidate's strongest achievements to what the role demands. Draw directly from their CV — mention real projects, technologies, metrics, and outcomes. Make the reader think "this person has already done exactly what we need."
+- Closing: express enthusiasm and request an interview. Be assertive, not passive.
+- The letter must make the candidate sound MORE impressive than a plain reading of their CV. Expand on their impact, frame their experience in the language of the target role.
+- Do not use placeholder text like [Your Name] — use the candidate's actual name.
+- Output ONLY the letter body. Start with "Dear Hiring Manager," or "Dear {job.company} Team," and end with "Sincerely," followed by the name.
+- No subject line, no meta-commentary."""
 
     client = ollama.Client(host=host) if host else ollama.Client()
     response = client.chat(

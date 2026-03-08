@@ -37,67 +37,80 @@ def generate_tailored_cv(
     if preferences.focus_areas:
         focus = f"Emphasize these areas: {', '.join(preferences.focus_areas)}. "
 
-    prompt = f"""You are an expert CV writer. Create a tailored CV/resume in MARKDOWN format for this candidate to apply to this specific job.
+    raw_cv = (profile.raw_text or "")[:6000]
 
-CANDIDATE PROFILE (from their existing CV):
+    prompt = f"""You are a senior career consultant who writes CVs that win interviews. Your job is to take this candidate's background and build the STRONGEST possible CV for the target role.
+
+CANDIDATE'S ORIGINAL CV:
+\"\"\"
+{raw_cv}
+\"\"\"
+
+PROFILE:
 Name: {profile.name or "Candidate"}
 {f"Location: {profile.location}" if profile.location else ""}
 {f"Email: {profile.email}" if profile.email else ""}
 {f"Phone: {profile.phone}" if profile.phone else ""}
-{f"Summary: {profile.summary}" if profile.summary else ""}
 Skills: {", ".join(profile.skills) if profile.skills else "N/A"}
-Experience: {" | ".join(profile.experience) if profile.experience else "N/A"}
-Education: {" | ".join(profile.education) if profile.education else "N/A"}
 Certifications: {", ".join(profile.certifications) if profile.certifications else "N/A"}
 Languages: {", ".join(profile.languages) if profile.languages else "N/A"}
 
-TARGET JOB:
+TARGET ROLE:
 Title: {job.title}
 Company: {job.company}
-Description: {job.description[:800]}
+Description: {job.description[:1200]}
 
-INSTRUCTIONS:
-- Rewrite and tailor the CV to highlight experience and skills most relevant to THIS job.
-- {tone} {style} {focus}
-- Output ONLY the CV. Follow this EXACT structure (do not add extra sections or change the format):
+YOUR MANDATE:
+You must make this candidate look HIGHLY competent and perfectly suited for this role. {tone} {style} {focus}
+
+Rules:
+1. EXPAND every role: take the candidate's original achievements and amplify them. If the original says "Led modernization of API Management", expand it into a rich, impactful bullet that demonstrates scope, scale, technology depth, and business outcome. Aim for 4-6 strong bullets per role.
+2. REFRAME for the target job: connect each bullet to what the target role needs. Use the job description's language and priorities.
+3. NEVER diminish: the tailored CV must make the candidate appear MORE qualified than their original CV, not less. Every role should read like the candidate was a high performer.
+4. ADD IMPLIED DEPTH: if the candidate worked with Kafka, Kubernetes, and CI/CD, you can reasonably expand on the architectural decisions, scale, and impact those imply. Stay truthful but professional — write like a recruiter who understands the candidate's work deeply.
+5. INCLUDE ALL ROLES from the original CV. Do not drop any.
+6. Skills section should be tailored: lead with skills most relevant to the target role, group logically.
+
+Output ONLY the CV in this EXACT markdown structure:
 
 ---
 ## Header
-Name: [candidate full name]
+Name: [full name]
 Contact: [email] | [phone]
 
 ## Summary
-[2-3 sentences tailored to this job]
+[3-4 impactful sentences positioning the candidate as an ideal fit for this role]
 
 ## Skills
-- [skill 1]
-- [skill 2]
-- [skill 3]
+- [most relevant skill group]
+- [second skill group]
 ...
 
 ## Experience
-### [Job Title 1]
-* [achievement or responsibility]
-* [achievement or responsibility]
+### [Job Title at Company | Dates]
+* [expanded achievement with scope, scale, and impact]
+* [responsibility reframed for target role]
+* [technical depth and business outcome]
+* [leadership, collaboration, or process improvement]
 
-### [Job Title 2]
-* [achievement or responsibility]
+### [Next Role at Company | Dates]
+* [4-6 bullets following the same pattern]
 ...
 
 ## Education
-- [degree/institution]
+- [degree at institution | dates]
 
 ## Languages
 - [Language - Level]
 
 ## Certifications
-- [certification 1]
-- [certification 2]
+- [certification]
 ---
-- Use ## for main sections, ### for each role under Experience, - for Skills/Education/Certifications/Languages, * for Experience bullets.
-- For Languages, preserve the exact proficiency levels from the profile (e.g., "English - Fluent", "German - Intermediate"). Do not change or omit the levels.
-- If the candidate has NO certifications (listed as "N/A" or empty), OMIT the ## Certifications section entirely. Do not include it at all.
-- Do not add preamble, explanation, or anything outside the structure above."""
+Formatting rules:
+- ## for sections, ### for roles, * for experience bullets, - for skills/education/languages/certifications.
+- For Languages, keep the exact proficiency levels (e.g., "English - Proficient", "German - Intermediate").
+- If there are NO certifications, OMIT the ## Certifications section entirely.
+- No preamble, no commentary, no explanation — only the CV."""
 
     client = ollama.Client(host=host) if host else ollama.Client()
     response = client.chat(

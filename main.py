@@ -19,6 +19,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import ollama
+
 from src.config import get_preferences, load_config
 from src.cover_letter_generator import generate_cover_letter
 from src.cv_generator import generate_tailored_cv
@@ -83,114 +85,106 @@ def _extract_role_from_text(text: str) -> str | None:
     return None
 
 
-def _clean_title(title: str) -> str:
-    """Strip parenthetical suffixes, ampersands, and excess whitespace."""
-    title = re.sub(r"\s*\([^)]*\)\s*", " ", title).strip()
-    return re.sub(r"\s+", " ", title)
+_QUERY_GEN_PROMPT = """You are a job market expert. Given a candidate's profile, generate the best job search queries to find roles they are qualified for.
+
+CANDIDATE:
+Name: {name}
+Summary: {summary}
+Skills: {skills}
+Experience: {experience}
+Country: {country}
+
+Generate 5-8 job search queries that would find the best matching open positions on a job board. Rules:
+- Each query should be a realistic job TITLE that employers actually post (e.g., "Solution Architect", "API Engineer", "Technical Account Manager").
+- Order from most relevant to broadest.
+- Include the candidate's current/most recent role type, plus related roles they could realistically apply for based on their skills.
+- Consider what the {country} job market calls these roles — use common local job title conventions.
+- Keep each query 2-4 words. No full sentences, no descriptions, no skills — just job titles.
+- Do NOT include single generic words like "Engineer" or "Architect" alone.
+
+Return ONLY a JSON array of strings. Example:
+["Solution Architect", "Integration Engineer", "Platform Engineer", "API Lead", "DevOps Architect"]
+"""
 
 
-def _split_compound_title(title: str) -> list[str]:
-    """Split compound titles into broader variants.
+def _ai_generate_queries(
+    profile, country: str, model: str, host: str | None
+) -> list[str]:
+    """Use the LLM to generate job search queries from the profile."""
+    import json as _json
 
-    "Solution & Integration Architect" -> ["Solution & Integration Architect",
-     "Solution Architect", "Integration Architect"]
-    """
-    variants = [title]
-    # Split on & or /
-    if "&" in title or "/" in title:
-        parts = re.split(r"\s*[&/]\s*", title)
-        if len(parts) >= 2:
-            # Find the trailing role word (e.g. "Architect", "Engineer", "Manager")
-            last_words = title.rsplit(None, 1)
-            role_suffix = last_words[-1] if len(last_words) > 1 else ""
-            for part in parts:
-                part = part.strip()
-                if not part:
-                    continue
-                # If the part doesn't already end with the role suffix, append it
-                if role_suffix and not part.lower().endswith(role_suffix.lower()):
-                    variants.append(f"{part} {role_suffix}")
-                else:
-                    variants.append(part)
-    return variants
+    skills_str = ", ".join(profile.skills[:15]) if profile.skills else "N/A"
+    exp_str = "; ".join(e[:100] for e in profile.experience[:4]) if profile.experience else "N/A"
+
+    prompt = _QUERY_GEN_PROMPT.format(
+        name=profile.name or "Candidate",
+        summary=(profile.summary or "")[:300],
+        skills=skills_str,
+        experience=exp_str,
+        country=country,
+    )
+
+    try:
+        client = ollama.Client(host=host) if host else ollama.Client()
+        resp = client.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.3, "num_predict": 300},
+        )
+        content = resp["message"]["content"].strip()
+        json_match = re.search(r"\[[\s\S]*\]", content)
+        if json_match:
+            content = json_match.group(0)
+        queries = _json.loads(content)
+        if isinstance(queries, list) and queries:
+            return [q.strip() for q in queries if isinstance(q, str) and len(q.strip()) > 3]
+    except Exception as e:
+        logger.warning("AI query generation failed, using fallback: %s", e)
+    return []
 
 
-def _build_search_queries(keywords: str, profile) -> list[str]:
-    """Build multiple search queries from explicit keywords or from the profile.
-
-    Returns a list of queries ordered from most specific to broadest.
-    """
-    if keywords:
-        return [keywords]
-
-    seen: set[str] = set()
+def _fallback_search_queries(profile) -> list[str]:
+    """Simple heuristic fallback if the LLM query generation fails."""
     queries: list[str] = []
+    seen: set[str] = set()
 
     def _add(q: str) -> None:
-        q = q.strip()
-        if q and q.lower() not in seen and len(q) > 2:
+        q = re.sub(r"\s*\([^)]*\)\s*", " ", q).strip()
+        q = re.sub(r"\s+", " ", q)
+        if q and q.lower() not in seen and len(q) > 3:
             seen.add(q.lower())
             queries.append(q)
 
-    # 1. Extract job titles from structured experience
-    job_titles = []
-    for exp in profile.experience[:5]:
-        if " at " in exp:
-            title = exp.split(" at ")[0].strip()
-        elif " | " in exp:
-            title = exp.split(" | ")[0].strip()
-        else:
-            continue
+    for exp in profile.experience[:3]:
+        title = exp.split(" at ")[0].strip() if " at " in exp else exp.split(" | ")[0].strip()
         if title and len(title) < 60:
-            job_titles.append(_clean_title(title))
+            _add(title)
 
-    # Add each title + its broader variants
-    for title in job_titles[:3]:
-        for variant in _split_compound_title(title):
-            _add(variant)
-
-    # 2. Extract role from profile summary
     if profile.summary:
         role = _extract_role_from_text(profile.summary)
         if role:
             _add(role)
 
-    # 3. Scan the top of the raw CV text for a job title
-    if profile.raw_text:
-        header = profile.raw_text[:500]
-        role = _extract_role_from_text(header)
-        if role:
-            _add(role)
+    if not queries:
+        _add("jobs")
 
-    # 4. Add top technical skills as fallback queries
-    generic_words = {
-        "leadership", "communication", "teamwork", "collaboration",
-        "organisation", "organization", "problem solving", "critical thinking",
-        "time management", "motivation", "adaptability", "creativity",
-        "flexibility", "attention to detail", "digitalisation",
-        "digitalization", "branding", "cross organization",
-        "cross organizational", "engineering", "operating environment",
-    }
-    useful_skills = [
-        s for s in (profile.skills or [])
-        if s.lower() not in generic_words and len(s) < 40
-    ]
-    for skill in useful_skills[:3]:
-        _add(skill)
+    return queries
+
+
+def _build_search_queries(
+    keywords: str, profile, country: str = "ch",
+    model: str = "qwen3:8b", host: str | None = None,
+) -> list[str]:
+    """Build search queries using AI, with heuristic fallback."""
+    if keywords:
+        return [keywords]
+
+    print("  Generating search queries with AI...", flush=True)
+    queries = _ai_generate_queries(profile, country, model, host)
 
     if not queries:
-        if profile.skills:
-            logger.warning(
-                "Could not derive specific queries. Falling back to skill: '%s'",
-                profile.skills[0],
-            )
-            _add(profile.skills[0])
-        else:
-            logger.warning(
-                "No skills or job titles found. Using generic query 'jobs'. "
-                "Set 'keywords' in config.yaml for better results."
-            )
-            _add("jobs")
+        logger.warning("AI returned no queries, using heuristic fallback.")
+        queries = _fallback_search_queries(profile)
 
     return queries
 
@@ -290,7 +284,7 @@ def main():
         print("  Summary:", profile.summary[:120] + ("..." if len(profile.summary) > 120 else ""))
 
     # 3. Build search queries (English + national languages) and fetch jobs
-    base_queries = _build_search_queries(keywords, profile)
+    base_queries = _build_search_queries(keywords, profile, country=country, model=model, host=ollama_host)
     lang_info = get_country_languages_display(country)
     country_name = get_country_name(country)
     print(f"\n[3/6] Fetching jobs from Adzuna API (live) for {country_name} ({lang_info})")

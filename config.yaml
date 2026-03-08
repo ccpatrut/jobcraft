@@ -37,10 +37,9 @@ job_search:
   # Each entry is tried in order. Results are combined and deduplicated.
   # Leave empty [] to search the entire country.
   locations:
-    - "Basel"
-    - "Basel-Stadt"
-    - "Basel-Landschaft"
-  radius_km: 30 # Search radius in km around each location (0 = exact match)
+    - "Zurich"
+
+  radius_km: 120 # Search radius in km around each location (0 = exact match)
 
   # Language strategy for search queries:
   #   "auto"          - English first, then local languages if not enough results (default)
