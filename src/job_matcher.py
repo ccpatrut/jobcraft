@@ -59,26 +59,59 @@ _CEFR_BEFORE_LANG = re.compile(
 
 # Keyword patterns that imply fluent/native (tier 5+) without a CEFR code
 _FLUENCY_KEYWORDS: list[tuple[re.Pattern, str]] = [
-    # German
+    # German — German-language patterns
     (re.compile(r"flie[ßs]end\w*\s+deutsch", re.IGNORECASE), "de"),
     (re.compile(r"muttersprach\w*\s+deutsch", re.IGNORECASE), "de"),
     (re.compile(r"deutsch\w*\s+(?:als\s+)?muttersprache", re.IGNORECASE), "de"),
     (re.compile(r"sehr\s+gute\w*\s+deutsch", re.IGNORECASE), "de"),
     (re.compile(r"stilsicher\w*\s+deutsch", re.IGNORECASE), "de"),
     (re.compile(r"perfekte\w*\s+deutsch", re.IGNORECASE), "de"),
-    # French
+    # German — English-language patterns
+    (re.compile(r"german[\s-]+speaking", re.IGNORECASE), "de"),
+    (re.compile(r"fluent\s+(?:in\s+)?german", re.IGNORECASE), "de"),
+    (re.compile(r"german\s+(?:native|fluent|fluency|mother\s*tongue)", re.IGNORECASE), "de"),
+    (re.compile(r"native\s+german", re.IGNORECASE), "de"),
+    (re.compile(r"german\s+(?:language\s+)?(?:required|mandatory|essential|necessary)", re.IGNORECASE), "de"),
+    (re.compile(r"(?:excellent|strong|advanced|proficient)\s+german", re.IGNORECASE), "de"),
+    # French — French-language patterns
     (re.compile(r"fran[çc]ais\s+(?:courant|maternel)", re.IGNORECASE), "fr"),
     (re.compile(r"couramment?\s+(?:le\s+)?fran[çc]ais", re.IGNORECASE), "fr"),
     (re.compile(r"langue\s+maternelle\s*:?\s*fran[çc]ais", re.IGNORECASE), "fr"),
     (re.compile(r"ma[îi]trise\s+(?:du\s+)?fran[çc]ais", re.IGNORECASE), "fr"),
-    # Italian
+    # French — English-language patterns
+    (re.compile(r"french[\s-]+speaking", re.IGNORECASE), "fr"),
+    (re.compile(r"fluent\s+(?:in\s+)?french", re.IGNORECASE), "fr"),
+    (re.compile(r"french\s+(?:native|fluent|fluency|mother\s*tongue)", re.IGNORECASE), "fr"),
+    (re.compile(r"native\s+french", re.IGNORECASE), "fr"),
+    (re.compile(r"french\s+(?:language\s+)?(?:required|mandatory|essential|necessary)", re.IGNORECASE), "fr"),
+    (re.compile(r"(?:excellent|strong|advanced|proficient)\s+french", re.IGNORECASE), "fr"),
+    # Italian — Italian-language patterns
     (re.compile(r"italiano\s+(?:fluente|madrelingua)", re.IGNORECASE), "it"),
     (re.compile(r"madrelingua\s+italian[ao]", re.IGNORECASE), "it"),
+    # Italian — English-language patterns
+    (re.compile(r"italian[\s-]+speaking", re.IGNORECASE), "it"),
+    (re.compile(r"fluent\s+(?:in\s+)?italian", re.IGNORECASE), "it"),
+    (re.compile(r"italian\s+(?:native|fluent|fluency|mother\s*tongue)", re.IGNORECASE), "it"),
+    (re.compile(r"native\s+italian", re.IGNORECASE), "it"),
     # English
     (re.compile(r"fluent\s+(?:in\s+)?english", re.IGNORECASE), "en"),
     (re.compile(r"english\s+(?:native|fluent)", re.IGNORECASE), "en"),
     (re.compile(r"flie[ßs]end\w*\s+englisch", re.IGNORECASE), "en"),
     (re.compile(r"anglais\s+(?:courant|maternel)", re.IGNORECASE), "en"),
+]
+
+# Lighter patterns for english_only mode: any mention of a non-English language
+# in the title strongly suggests the role requires that language, even without
+# "fluent" or "native" qualifiers (e.g. "German Ads Manager").
+_TITLE_LANG_SIGNALS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bgerman\b", re.IGNORECASE), "de"),
+    (re.compile(r"\bdeutsch\w*\b", re.IGNORECASE), "de"),
+    (re.compile(r"\bfrench\b", re.IGNORECASE), "fr"),
+    (re.compile(r"\bfran[çc]ais\w*\b", re.IGNORECASE), "fr"),
+    (re.compile(r"\bitalian\b", re.IGNORECASE), "it"),
+    (re.compile(r"\bitaliano?\b", re.IGNORECASE), "it"),
+    (re.compile(r"\bspanish\b", re.IGNORECASE), "es"),
+    (re.compile(r"\bespa[ñn]ol\b", re.IGNORECASE), "es"),
 ]
 
 # Also used in profile parsing
@@ -147,6 +180,45 @@ def _job_requires_fluency_beyond(job: JobListing, candidate_langs: dict[str, int
                 return f"requires fluent {name} (candidate: tier {candidate_tier}/6)"
 
     return None
+
+
+def filter_english_only_jobs(
+    jobs: list[JobListing], candidate_langs: dict[str, int] | None = None,
+) -> tuple[list[JobListing], int]:
+    """Aggressively filter jobs when english_only is set.
+
+    Removes any job whose TITLE mentions a non-English language (German, French,
+    Italian, Spanish) when the candidate lacks Advanced+ proficiency in that
+    language.  This catches "German speaking Account Manager" style titles that
+    pass the HF language classifier because the posting is written in English.
+
+    Returns (kept_jobs, removed_count).
+    """
+    if candidate_langs is None:
+        candidate_langs = {}
+    kept = []
+    removed = 0
+    for job in jobs:
+        title = job.title or ""
+        flagged_lang = None
+        for pattern, lang_code in _TITLE_LANG_SIGNALS:
+            if pattern.search(title):
+                candidate_tier = candidate_langs.get(lang_code, 0)
+                if candidate_tier < 4:  # Below Advanced/Proficient
+                    flagged_lang = lang_code
+                    break
+        if flagged_lang:
+            lang_name = {"de": "German", "fr": "French", "it": "Italian", "es": "Spanish"}.get(
+                flagged_lang, flagged_lang
+            )
+            logger.warning(
+                "english_only filter: title mentions %s → %s @ %s",
+                lang_name, job.title, job.company,
+            )
+            removed += 1
+        else:
+            kept.append(job)
+    return kept, removed
 
 
 def filter_jobs_by_language(
@@ -224,6 +296,7 @@ def _ai_validate_job(
             options={"temperature": 0.1, "num_predict": 200},
         )
         content = resp["message"]["content"].strip()
+        content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             content = json_match.group(0)
@@ -357,6 +430,48 @@ def build_profile_summary(profile: UserProfile) -> str:
     return "\n".join(parts)
 
 
+def rank_jobs_with_embeddings(
+    profile: UserProfile,
+    jobs: list[JobListing],
+    top_n: int = 10,
+    rerank_with_llm: bool = True,
+    model: str = "qwen3:8b",
+    host: Optional[str] = None,
+) -> list[JobListing]:
+    """Rank jobs using sentence-transformer embeddings, with optional LLM re-ranking.
+
+    1. Compute cosine similarity between profile and all jobs (fast, handles hundreds).
+    2. Take the top candidates (2x top_n for headroom).
+    3. Optionally re-rank those candidates with the LLM for nuance.
+    """
+    import time
+
+    from .embeddings import rank_jobs_by_similarity
+
+    print(f"  Computing semantic similarity for {len(jobs)} jobs...", flush=True)
+    t0 = time.time()
+
+    # Get more candidates than needed so the LLM re-ranker has good material
+    n_candidates = min(len(jobs), top_n * 2)
+    ranked = rank_jobs_by_similarity(profile, jobs, top_n=n_candidates)
+
+    elapsed = time.time() - t0
+    print(f"  Embedding ranking done — {elapsed:.1f}s", flush=True)
+
+    for i, (job, score) in enumerate(ranked[:top_n], 1):
+        print(f"    {i}. [{score:.3f}] {job.title} @ {job.company}", flush=True)
+
+    if rerank_with_llm and len(ranked) > top_n:
+        print(f"  Re-ranking top {len(ranked)} with Ollama for nuance...", flush=True)
+        candidate_jobs = [job for job, _score in ranked]
+        return rank_jobs_with_ollama(
+            profile, candidate_jobs, model=model, top_n=top_n, host=host,
+            max_jobs_to_rank=len(candidate_jobs),
+        )
+
+    return [job for job, _score in ranked[:top_n]]
+
+
 def rank_jobs_with_ollama(
     profile: UserProfile,
     jobs: list[JobListing],
@@ -434,6 +549,7 @@ Respond with ONLY the indices of the top {top_n} best-matching jobs, one per lin
     print(f"\r  Ranking complete — {elapsed:.1f}s, {token_count} tokens" + " " * 20, flush=True)
 
     content = "".join(content_parts).strip()
+    content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
     indices = []
     for line in content.split("\n"):
         line = line.strip().strip(".-)")

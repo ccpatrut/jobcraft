@@ -17,3 +17,4 @@ cv_input/*
 *.db
 *.db-wal
 *.db-shm
+*.pdf

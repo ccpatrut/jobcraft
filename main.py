@@ -13,8 +13,18 @@ Ensure Ollama is running locally (ollama serve) and you have pulled a model:
 import logging
 import os
 import re
+import signal
 import sys
 from pathlib import Path
+
+
+def _force_exit(signum, frame):
+    """Handle Ctrl+C immediately even during native C code (HF/PyTorch inference)."""
+    print("\n  Interrupted — exiting.", flush=True)
+    os._exit(130)
+
+
+signal.signal(signal.SIGINT, _force_exit)
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,21 +47,33 @@ from src.database import (
 )
 from src.document_loader import load_documents_from_dir
 from src.job_fetcher import fetch_adzuna_jobs
-from src.job_matcher import ai_validate_and_filter, filter_jobs_by_language, rank_jobs_with_ollama
+from src.job_matcher import (
+    _TITLE_LANG_SIGNALS,
+    ai_validate_and_filter,
+    filter_english_only_jobs,
+    filter_jobs_by_language,
+    rank_jobs_with_embeddings,
+    rank_jobs_with_ollama,
+)
+from src.lang_detect import filter_jobs_by_description_language, filter_jobs_by_detected_language
 from src.pdf_utils import markdown_to_pdf
 from src.profile_extractor import extract_profile_with_ollama
 from src.query_translator import (
-    detect_language_markers,
     get_country_languages_display,
     get_country_name,
     get_localized_queries,
 )
+from src.spinner import Spinner
 
 logger = logging.getLogger(__name__)
 
 
 def _extract_role_from_text(text: str) -> str | None:
-    """Find a job title/role in free text using common patterns."""
+    """Find a job title/role in free text using common patterns.
+
+    Requires at least a domain + role suffix (e.g. "software engineer")
+    to avoid returning bare generic words like "event" or "security".
+    """
     import re
 
     role_pattern = re.compile(
@@ -63,16 +85,16 @@ def _extract_role_from_text(text: str) -> str | None:
         r"web|frontend|backend|full\s*stack|devops|cloud|security|"
         r"cook|chef|barista|hospitality|restaurant|catering|service|"
         r"retail|warehouse|driver|nurse|care|assistant)"
-        r"(\s+(?:manager|engineer|developer|designer|analyst|consultant|"
+        r"\s+(manager|engineer|developer|designer|analyst|consultant|"
         r"specialist|coordinator|director|officer|lead|associate|"
         r"executive|administrator|supervisor|representative|advisor|"
-        r"architect|strategist|planner))?",
+        r"architect|strategist|planner)",
         re.IGNORECASE,
     )
     matches = role_pattern.findall(text)
     if matches:
         roles = [re.sub(r"\s+", " ", " ".join(parts)).strip() for parts in matches if any(parts)]
-        roles = [r for r in roles if len(r) > 3]
+        roles = [r for r in roles if len(r) > 5 and " " in r]
         if roles:
             seen = set()
             unique = []
@@ -132,6 +154,10 @@ def _ai_generate_queries(
             options={"temperature": 0.3, "num_predict": 300},
         )
         content = resp["message"]["content"].strip()
+
+        # qwen3 wraps responses in <think>...</think> — strip that first
+        content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
+
         json_match = re.search(r"\[[\s\S]*\]", content)
         if json_match:
             content = json_match.group(0)
@@ -179,14 +205,76 @@ def _build_search_queries(
     if keywords:
         return [keywords]
 
-    print("  Generating search queries with AI...", flush=True)
-    queries = _ai_generate_queries(profile, country, model, host)
+    with Spinner("Generating search queries with AI"):
+        queries = _ai_generate_queries(profile, country, model, host)
 
     if not queries:
         logger.warning("AI returned no queries, using heuristic fallback.")
         queries = _fallback_search_queries(profile)
 
     return queries
+
+
+def _interactive_select(jobs: list) -> list:
+    """Prompt the user to select which jobs to generate CVs for.
+
+    Accepts comma-separated numbers, ranges (e.g. 1-5), or 'all'.
+    Returns the selected subset of jobs.
+    """
+    total = len(jobs)
+    if total == 0:
+        return []
+
+    print(f"\n  Select jobs to generate CVs for (1-{total}).")
+    print("  Enter numbers separated by commas, ranges (e.g. 1-3,5,7), or 'all'.")
+    print("  Press Enter for all, or 'q' to quit.\n")
+
+    while True:
+        try:
+            raw = input("  Your selection: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return []
+
+        if not raw or raw.lower() == "all":
+            return list(jobs)
+
+        if raw.lower() in ("q", "quit", "exit"):
+            return []
+
+        indices: set[int] = set()
+        valid = True
+        for part in raw.split(","):
+            part = part.strip()
+            if "-" in part:
+                try:
+                    lo, hi = part.split("-", 1)
+                    lo, hi = int(lo.strip()), int(hi.strip())
+                    if lo < 1 or hi > total or lo > hi:
+                        print(f"  Invalid range: {part} (must be 1-{total})")
+                        valid = False
+                        break
+                    indices.update(range(lo, hi + 1))
+                except ValueError:
+                    print(f"  Invalid range: {part}")
+                    valid = False
+                    break
+            else:
+                try:
+                    n = int(part)
+                    if n < 1 or n > total:
+                        print(f"  {n} is out of range (1-{total})")
+                        valid = False
+                        break
+                    indices.add(n)
+                except ValueError:
+                    print(f"  '{part}' is not a number")
+                    valid = False
+                    break
+
+        if valid and indices:
+            selected = [jobs[i - 1] for i in sorted(indices)]
+            print(f"  → {len(selected)} job(s) selected.")
+            return selected
 
 
 def main():
@@ -223,6 +311,8 @@ def main():
     exclude_languages = job_cfg.get("exclude_languages", []) or []
     locations = job_cfg.get("locations", []) or []
     radius_km = int(job_cfg.get("radius_km", 0))
+    use_embeddings = ai_cfg.get("use_embeddings", True)
+    rerank_with_llm = ai_cfg.get("rerank_with_llm", True)
 
     # Initialize database
     conn = get_connection()
@@ -255,10 +345,9 @@ def main():
             print("  Using cached profile (CV text unchanged).")
             print("  Tip: run with --fresh to force re-extraction.")
     if not profile:
-        print("  Calling Ollama for profile extraction (this may take a minute)...")
         try:
-            profile = extract_profile_with_ollama(combined_text, model=model, host=ollama_host)
-            print("  Profile extracted from Ollama (fresh).")
+            with Spinner("Extracting profile with Ollama"):
+                profile = extract_profile_with_ollama(combined_text, model=model, host=ollama_host)
         except Exception as e:
             print("  ERROR: Could not connect to Ollama. Is it running? Try: ollama serve")
             print("  Also ensure you have pulled a model: ollama pull", model)
@@ -301,18 +390,21 @@ def main():
     # For each base query, expand with local-language translations
     all_queries: list[str] = []
     seen_queries: set[str] = set()
-    for bq in base_queries:
-        if language_strategy == "english_only":
-            expanded = [bq]
-        else:
-            expanded = get_localized_queries(
-                bq, country, model=model, host=ollama_host,
-                language_strategy=language_strategy,
-            )
-        for eq in expanded:
-            if eq.lower() not in seen_queries:
-                seen_queries.add(eq.lower())
-                all_queries.append(eq)
+
+    if language_strategy == "english_only":
+        all_queries = list(base_queries)
+        seen_queries = {q.lower() for q in all_queries}
+    else:
+        with Spinner("Translating queries to local languages"):
+            for bq in base_queries:
+                expanded = get_localized_queries(
+                    bq, country, model=model, host=ollama_host,
+                    language_strategy=language_strategy,
+                )
+                for eq in expanded:
+                    if eq.lower() not in seen_queries:
+                        seen_queries.add(eq.lower())
+                        all_queries.append(eq)
 
     if len(all_queries) > len(base_queries):
         print(f"  Expanded to {len(all_queries)} queries (with translations)")
@@ -353,37 +445,87 @@ def main():
                 print(f"  [{loc_label} | {q[:30]}] -> ERROR: {e}")
                 continue
 
-    # Filter out jobs in excluded languages
-    if exclude_languages:
-        before = len(jobs)
-        jobs = [
-            job for job in jobs
-            if not any(
-                detect_language_markers(f"{job.title} {job.description}", lang)
-                for lang in exclude_languages
-            )
-        ]
-        filtered = before - len(jobs)
-        if filtered:
-            print(f"  Filtered out {filtered} jobs in excluded languages")
+    # --- Language filtering (runs BEFORE ranking) ---
+    # When english_only is set, keep only English-language postings.
+    # Otherwise apply exclude_languages list + proficiency-based filter.
+    if language_strategy == "english_only":
+        from src.lang_detect import detect_language
+        print(f"  Classifying {len(jobs)} jobs with HF language model (xlm-roberta)...")
+        kept = []
+        removed_count = 0
+        for idx, j in enumerate(jobs):
+            text = f"{j.title} {j.description or ''}"
+            lang = detect_language(text)
+            if lang == "en":
+                kept.append(j)
+            else:
+                removed_count += 1
+                print(f"    ✗ [{lang}] {j.title} @ {j.company}")
+            if (idx + 1) % 10 == 0:
+                print(f"    ... classified {idx + 1}/{len(jobs)}", flush=True)
+        jobs = kept
+        print(f"  HF model kept {len(jobs)} English postings, removed {removed_count} non-English")
+
+        candidate_langs = {}
+        if profile.languages:
+            for entry in profile.languages:
+                parts = entry.split(" - ", 1)
+                name = parts[0].strip().lower()
+                level = parts[1].strip().lower() if len(parts) > 1 else "proficient"
+                code = {"english": "en", "german": "de", "french": "fr",
+                        "italian": "it", "spanish": "es"}.get(name, name[:2])
+                tier = {"native": 6, "fluent": 5, "proficient": 4, "advanced": 4,
+                        "c2": 6, "c1": 5, "b2": 4, "b1": 3, "a2": 2, "a1": 1,
+                        "intermediate": 3, "elementary": 2, "beginner": 1}.get(level, 3)
+                candidate_langs[code] = max(candidate_langs.get(code, 0), tier)
+
+        jobs, title_removed = filter_english_only_jobs(jobs, candidate_langs)
+        if title_removed:
+            print(f"  Title-language filter removed {title_removed} more ({len(jobs)} remaining)")
+    else:
+        if exclude_languages:
+            with Spinner(f"Detecting languages (excluding: {', '.join(exclude_languages)})"):
+                jobs, filtered = filter_jobs_by_detected_language(jobs, exclude_languages)
+            if filtered:
+                print(f"  Filtered out {filtered} jobs in excluded languages")
+
+        if profile.languages:
+            with Spinner("Checking posting languages against your proficiency"):
+                jobs, desc_lang_removed = filter_jobs_by_description_language(jobs, profile.languages)
+            if desc_lang_removed:
+                print(f"  Removed {desc_lang_removed} jobs in languages beyond your proficiency")
+                print(f"  {len(jobs)} remaining")
 
     new_count = save_jobs(conn, jobs, search_query=base_queries[0], country=country)
-    print(f"  Total: {len(jobs)} unique jobs from API ({new_count} new saved to database)")
+    print(f"  Total: {len(jobs)} jobs after language filtering ({new_count} new saved to database)")
 
-    # Fallback to cached jobs if API returned too few results
+    # Fallback to cached jobs if too few results
     if len(jobs) < 5:
         search_terms = list(base_queries)
 
         if jobs:
-            print(f"  Only {len(jobs)} jobs from API — checking database for more...")
+            print(f"  Only {len(jobs)} jobs — checking database for more...")
         else:
-            print("  No jobs from API — searching database cache...")
+            print("  No jobs remaining — searching database cache...")
 
         cached = search_cached_jobs(conn, search_terms, country=country, limit=max_results)
         seen_urls = {j.url for j in jobs}
         added = 0
         for cj in cached:
             if cj.url not in seen_urls:
+                if language_strategy == "english_only":
+                    lang = detect_language(f"{cj.title} {cj.description or ''}")
+                    if lang != "en":
+                        print(f"    ✗ cached [{lang}] {cj.title} @ {cj.company}")
+                        continue
+                    flagged = False
+                    for pat, lc in _TITLE_LANG_SIGNALS:
+                        if pat.search(cj.title or "") and candidate_langs.get(lc, 0) < 4:
+                            print(f"    ✗ cached [title:{lc}] {cj.title} @ {cj.company}")
+                            flagged = True
+                            break
+                    if flagged:
+                        continue
                 jobs.append(cj)
                 seen_urls.add(cj.url)
                 added += 1
@@ -396,11 +538,11 @@ def main():
         print("  No jobs found (API or cache). Try adjusting keywords or location/language in config.yaml.")
         return 1
 
-    # 4. Filter by language requirements, then rank
+    # Regex filter for explicit language requirements in description text
     if profile.languages:
         jobs, lang_removed = filter_jobs_by_language(jobs, profile)
         if lang_removed:
-            print(f"  Regex filter removed {lang_removed} jobs requiring higher language proficiency")
+            print(f"  Regex filter removed {lang_removed} more jobs (explicit requirements)")
             print(f"  {len(jobs)} jobs remaining after regex filter")
 
     if not jobs:
@@ -432,13 +574,34 @@ def main():
         print("  No jobs left after AI validation. Try broadening language settings.")
         return 1
 
-    print("\n[4/6] Ranking jobs by fit with Ollama...")
-    try:
-        top_jobs = rank_jobs_with_ollama(profile, jobs, model=model, top_n=10, host=ollama_host)
-    except Exception as e:
-        print("  ERROR ranking jobs:", e)
-        top_jobs = jobs[:5]
-    print("  Selected top", len(top_jobs), "matches")
+    if use_embeddings:
+        print("\n[4/6] Ranking jobs by semantic similarity (embeddings)...")
+        try:
+            top_jobs = rank_jobs_with_embeddings(
+                profile, jobs, top_n=10,
+                rerank_with_llm=rerank_with_llm, model=model, host=ollama_host,
+            )
+        except Exception as e:
+            print(f"  Embedding ranking failed ({e}), falling back to Ollama...")
+            top_jobs = rank_jobs_with_ollama(profile, jobs, model=model, top_n=10, host=ollama_host)
+    else:
+        print("\n[4/6] Ranking jobs by fit with Ollama...")
+        try:
+            top_jobs = rank_jobs_with_ollama(profile, jobs, model=model, top_n=10, host=ollama_host)
+        except Exception as e:
+            print("  ERROR ranking jobs:", e)
+            top_jobs = jobs[:5]
+    print(f"  Selected top {len(top_jobs)} matches:")
+    for i, job in enumerate(top_jobs, 1):
+        print(f"    {i}. {job.title} @ {job.company}")
+        print(f"       {job.url}")
+
+    # Interactive selection
+    selected_jobs = _interactive_select(top_jobs)
+    if not selected_jobs:
+        print("\n  No jobs selected — exiting.")
+        conn.close()
+        return 0
 
     # 5. Generate CVs and cover letters
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -446,17 +609,18 @@ def main():
     def safe_name(s: str) -> str:
         return "".join(c if c.isalnum() or c in " -_" else "_" for c in s)[:60]
 
-    print("\n[5/6] Generating tailored CVs and cover letters...")
-    for i, job in enumerate(top_jobs, 1):
+    print(f"\n[5/6] Generating tailored CVs and cover letters for {len(selected_jobs)} jobs...")
+    for i, job in enumerate(selected_jobs, 1):
         company_safe = safe_name(job.company)
         title_safe = safe_name(job.title)
         prefix = f"{i}_{company_safe}_{title_safe}"
         job_id = get_job_id(conn, job.url)
 
-        print(f"  [{i}/{len(top_jobs)}] {job.title} @ {job.company}")
+        print(f"  [{i}/{len(selected_jobs)}] {job.title} @ {job.company}")
 
         try:
-            cv_text = generate_tailored_cv(profile, job, prefs, model=model, host=ollama_host)
+            with Spinner(f"Generating CV ({i}/{len(selected_jobs)})"):
+                cv_text = generate_tailored_cv(profile, job, prefs, model=model, host=ollama_host)
             cv_md_path = output_dir / f"{prefix}_cv.md"
             cv_md_path.write_text(cv_text, encoding="utf-8")
             cv_pdf_path = output_dir / f"{prefix}_cv.pdf"
@@ -469,7 +633,8 @@ def main():
             print(f"        CV ERROR: {e}")
 
         try:
-            letter_text = generate_cover_letter(profile, job, prefs, model=model, host=ollama_host)
+            with Spinner(f"Generating cover letter ({i}/{len(selected_jobs)})"):
+                letter_text = generate_cover_letter(profile, job, prefs, model=model, host=ollama_host)
             letter_md_path = output_dir / f"{prefix}_cover_letter.md"
             letter_md_path.write_text(letter_text, encoding="utf-8")
             letter_pdf_path = output_dir / f"{prefix}_cover_letter.pdf"

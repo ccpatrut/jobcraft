@@ -61,9 +61,6 @@ INSTRUCTIONS:
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0.7},
     )
+    import re
     content = response["message"]["content"].strip()
-
-    # Append job link so the candidate knows where to apply
-    if job.url:
-        content += f"\n\n---\n**Apply for this position:** [{job.title} at {job.company}]({job.url})"
-    return content
+    return re.sub(r"<think>[\s\S]*?</think>", "", content).strip()

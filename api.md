@@ -52,22 +52,55 @@ This document describes each API used by the Job Finder application, with docume
 
 ## Local AI (Ollama)
 
-**Rationale:** Runs LLMs locally so no cloud API costs and no data leaves your machine. Used for profile extraction from CVs, job ranking, and CV/cover letter generation.
+**Rationale:** Runs LLMs locally so no cloud API costs and no data leaves your machine. Used for profile extraction from CVs, search query generation, language translation, AI language validation, optional re-ranking, and CV/cover letter generation.
 
 **Documentation:**
 - [Ollama docs](https://docs.ollama.com/)
 - [API reference](https://ollama.readthedocs.io/)
 - [Python client](https://github.com/ollama/ollama-python)
 
+**Model used:** `qwen3:8b` (configurable via `ai.model` in `config.yaml`)
+
 **Cost:** Free (local compute only)
+
+---
+
+## HuggingFace Models
+
+### 4. sentence-transformers/all-MiniLM-L6-v2
+
+**Rationale:** Fast, lightweight sentence embedding model for semantic similarity ranking. Produces dense vectors that allow cosine-similarity comparison between a candidate profile and job descriptions. Much faster and more accurate than LLM-based ranking for this task.
+
+**Documentation:**
+- [Model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+- [sentence-transformers library](https://www.sbert.net/)
+
+**Size:** ~80MB (auto-downloads on first run)
+
+**Cost:** Free (local inference)
+
+---
+
+### 5. papluca/xlm-roberta-base-language-detection
+
+**Rationale:** Accurate multi-language text classifier fine-tuned on 20 languages. Used to detect the primary language of job postings so non-target-language jobs can be filtered out before ranking. Essential for the `english_only` mode in multi-lingual markets like Switzerland.
+
+**Documentation:**
+- [Model card](https://huggingface.co/papluca/xlm-roberta-base-language-detection)
+
+**Size:** ~1.1GB (auto-downloads on first run)
+
+**Cost:** Free (local inference)
 
 ---
 
 ## Summary
 
-| API            | Primary use                    | Auth required | Cost   |
+| API / Model    | Primary use                    | Auth required | Cost   |
 |----------------|---------------------------------|---------------|--------|
 | Adzuna         | Multi-country job search (DE, AT, CH, FR, IT) | Yes (app_id, app_key) | Free   |
 | Arbeitsagentur | Germany jobs                   | Fixed client ID | Free   |
-| Arbeitnow     | Europe & remote jobs            | No            | Free   |
-| Ollama        | CV analysis, matching, generation | No (local)  | Free   |
+| Arbeitnow      | Europe & remote jobs            | No            | Free   |
+| Ollama         | CV analysis, query generation, validation, CV/letter generation | No (local)  | Free   |
+| all-MiniLM-L6-v2 | Semantic job ranking (embeddings) | No (local) | Free |
+| xlm-roberta-base-language-detection | Job posting language detection | No (local) | Free |

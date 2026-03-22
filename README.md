@@ -1,14 +1,16 @@
 # Job Finder
 
-AI-powered job matching and tailored CV/cover letter generation. Uses **Ollama** for local AI (no cloud required) and the **Adzuna** API for job listings.
+AI-powered job matching and tailored CV/cover letter generation. Uses **Ollama** for local AI, **HuggingFace** models for semantic ranking and language detection, and the **Adzuna** API for job listings. Everything runs locally — no cloud AI services needed.
 
 ## What it does
 
 1. **Reads your CVs** – Loads PDF and Word documents from a local directory
 2. **Extracts your profile** – Uses Ollama to pull skills, experience, languages, certifications
-3. **Fetches jobs** – Pulls listings from Adzuna API with multi-query, multi-lingual search
-4. **Filters & ranks** – Regex + AI language validation, then AI-powered ranking by fit
-5. **Generates output** – Creates 10 tailored CVs and 10 cover letters as Markdown + PDF
+3. **Fetches jobs** – Pulls listings from Adzuna API with AI-generated multi-query, multi-lingual search
+4. **Filters by language** – HF classifier removes non-target-language postings, title-language filter catches "German speaking" style jobs, regex catches explicit requirements, optional AI validation loop learns missed patterns
+5. **Ranks by fit** – HuggingFace sentence embeddings for fast semantic similarity, optional Ollama re-ranking for nuance
+6. **Interactive selection** – You choose which ranked jobs to generate documents for
+7. **Generates output** – Creates tailored CVs and cover letters as Markdown + PDF
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for a full architecture overview.
 
@@ -36,7 +38,7 @@ cd job-finder
 uv sync
 ```
 
-This creates a `.venv` and installs all dependencies. To run the app:
+This creates a `.venv` and installs all dependencies (including PyTorch and HuggingFace models). To run the app:
 
 ```bash
 uv run python main.py
@@ -84,7 +86,15 @@ cv_input/
 python main.py
 ```
 
-Generated CVs and cover letters will appear in `output/`.
+On first run, HuggingFace models auto-download (~80MB embedder, ~1.1GB language detector). Subsequent runs are instant.
+
+After ranking, you'll see an interactive prompt to select which jobs to generate CVs for. Generated CVs and cover letters appear in `output/`.
+
+Use `--fresh` to force profile re-extraction (ignores cache):
+
+```bash
+python main.py --fresh
+```
 
 ## Configuration
 
@@ -96,8 +106,16 @@ Edit `config.yaml` to adjust:
 | `output_dir` | Where generated files are saved |
 | `preferences.tone` | `formal` \| `semi-formal` \| `casual` \| `enthusiastic` \| `professional` |
 | `preferences.style` | `concise` \| `detailed` \| `balanced` |
-| `job_search.country` | Adzuna country code (`gb`, `us`, `de`, etc.) |
+| `preferences.default_languages` | Fallback language proficiencies if not extracted from CV |
+| `job_search.country` | Adzuna country code (`ch`, `de`, `at`, `fr`, `it`, `gb`, `us`) |
+| `job_search.locations` | List of cities/regions to search (e.g. `["Basel", "Zürich"]`) |
+| `job_search.radius_km` | Search radius in km around each location |
+| `job_search.language` | `auto` \| `english_only` \| `local_first` — controls search and filtering |
+| `job_search.exclude_languages` | ISO codes to exclude (e.g. `["de"]` to skip German postings) |
+| `job_search.ai_language_validation` | `true`/`false` — LLM re-checks for hidden language requirements |
 | `ai.model` | Ollama model (e.g. `qwen3:8b`, `mistral`, `phi4`) |
+| `ai.use_embeddings` | `true`/`false` — use HF sentence embeddings for ranking |
+| `ai.rerank_with_llm` | `true`/`false` — refine embedding ranking with Ollama |
 
 ## Project structure
 
@@ -117,11 +135,14 @@ job-finder/
     ├── profile_extractor.py    # AI profile extraction (Ollama)
     ├── query_translator.py     # Multi-lingual query translation
     ├── job_fetcher.py          # Adzuna API client
-    ├── job_matcher.py          # Language filter + AI ranking + AI validation
+    ├── job_matcher.py          # Language filters + AI ranking + AI validation
+    ├── embeddings.py           # HuggingFace semantic similarity ranking
+    ├── lang_detect.py          # HuggingFace language detection (xlm-roberta)
     ├── cv_generator.py         # Tailored CV generation (Ollama)
     ├── cover_letter_generator.py  # Cover letter generation (Ollama)
     ├── pdf_utils.py            # Markdown → PDF renderer (fpdf2)
-    └── database.py             # SQLite caching layer
+    ├── database.py             # SQLite caching layer
+    └── spinner.py              # Animated loading spinner for CLI
 ```
 
 ## CI
@@ -139,3 +160,5 @@ The CI workflow does not require API secrets.
 - **"Adzuna API credentials required"** – Add `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` to `.env`.
 - **No documents found** – Ensure PDF or `.docx` files are in `cv_input/` (not `.doc`).
 - **Slow responses** – Larger models are slower. Try `ollama pull qwen3:8b` for a lighter model.
+- **Ctrl+C not stopping** – Fixed: the app installs a SIGINT handler that terminates immediately, even during HuggingFace/PyTorch inference.
+- **HF Hub warnings** – Set `HF_TOKEN` in `.env` to suppress "unauthenticated requests" warnings (optional, models download fine without it).

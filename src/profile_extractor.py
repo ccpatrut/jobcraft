@@ -96,7 +96,10 @@ Extraction guidance:
   - Extract degree, institution, dates, and location where available.
   - Include certifications or training here only if they are clearly education entries rather than certifications.
 - Skills:
-  - Include technical skills, software, frameworks, methods, and domain skills if explicitly present.
+  - Extract INDIVIDUAL technical skills, tools, technologies, frameworks, platforms, and methods.
+  - If the CV groups skills under category headers (e.g. "Platforms & Runtime: Kafka, AMQ, MuleSoft"),
+    extract each individual item (Kafka, AMQ, MuleSoft) — NOT the category header itself.
+  - Aim for 10-25 specific, concrete skills. Examples: "Kafka", "Kubernetes", "Java", "Python", "MuleSoft", "PostgreSQL", "CI/CD", "API Management".
   - Do NOT include spoken languages in skills — put them in "languages" instead.
   - Do not include vague personality traits unless clearly framed as professional competencies.
 - Certifications:
@@ -213,6 +216,7 @@ def _fallback_extraction(
             options={"temperature": 0.1, "num_predict": 500},
         )
         content = resp["message"]["content"].strip()
+        content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             content = json_match.group(0)
@@ -277,6 +281,10 @@ def extract_profile_with_ollama(
     )
 
     content = response["message"]["content"].strip()
+
+    # qwen3 wraps responses in <think>...</think> — strip before JSON parsing
+    content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
+
     json_match = re.search(r"\{[\s\S]*\}", content)
     if json_match:
         content = json_match.group(0)

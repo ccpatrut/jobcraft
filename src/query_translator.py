@@ -80,6 +80,7 @@ def get_localized_queries(
             options={"temperature": 0.1, "num_predict": 300},
         )
         content = response["message"]["content"].strip()
+        content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             content = json_match.group(0)
