@@ -22,7 +22,7 @@ def get_connection(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist, and run migrations."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS profiles (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +53,9 @@ def init_db(conn: sqlite3.Connection) -> None:
             search_query  TEXT,
             country       TEXT,
             fetched_at    TEXT NOT NULL,
-            status        TEXT DEFAULT 'new'
+            status        TEXT DEFAULT 'new',
+            status_changed_at TEXT,
+            notes         TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS generated_outputs (
@@ -72,7 +74,17 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_profiles_hash ON profiles(cv_hash);
         CREATE INDEX IF NOT EXISTS idx_outputs_job ON generated_outputs(job_id);
     """)
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that may be missing in older databases."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    if "status_changed_at" not in existing:
+        conn.execute("ALTER TABLE jobs ADD COLUMN status_changed_at TEXT")
+    if "notes" not in existing:
+        conn.execute("ALTER TABLE jobs ADD COLUMN notes TEXT DEFAULT ''")
 
 
 # -- Profile caching --
@@ -245,23 +257,91 @@ def search_cached_jobs(
     rows = conn.execute(query, params).fetchall()
     results = []
     for row in rows:
-        results.append(JobListing(
-            title=row["title"],
-            company=row["company"],
-            url=row["url"],
-            description=row["description"] or "",
-            location=row["location"] or "",
-            salary=row["salary"] or "",
-            contract_type=row["contract_type"] or "",
-            source=row["source"] or "adzuna",
-        ))
+        results.append(
+            JobListing(
+                title=row["title"],
+                company=row["company"],
+                url=row["url"],
+                description=row["description"] or "",
+                location=row["location"] or "",
+                salary=row["salary"] or "",
+                contract_type=row["contract_type"] or "",
+                source=row["source"] or "adzuna",
+            )
+        )
     return results
+
+
+def get_job_by_url(conn: sqlite3.Connection, url: str) -> Optional[tuple[int, JobListing]]:
+    """Look up a single job by its URL. Returns (row_id, JobListing) or None."""
+    row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
+    if not row:
+        return None
+    job = JobListing(
+        title=row["title"],
+        company=row["company"],
+        description=row["description"] or "",
+        location=row["location"] or "",
+        url=row["url"],
+        salary=row["salary"],
+        contract_type=row["contract_type"],
+        source=row["source"] or "adzuna",
+    )
+    return row["id"], job
 
 
 def update_job_status(conn: sqlite3.Connection, job_url: str, status: str) -> None:
     """Update the status of a job (new, applied, interview, rejected, saved)."""
-    conn.execute("UPDATE jobs SET status = ? WHERE url = ?", (status, job_url))
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE jobs SET status = ?, status_changed_at = ? WHERE url = ?",
+        (status, now, job_url),
+    )
     conn.commit()
+
+
+def add_job_note(conn: sqlite3.Connection, job_url: str, note: str) -> None:
+    """Append a timestamped note to a job."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    row = conn.execute("SELECT notes FROM jobs WHERE url = ?", (job_url,)).fetchone()
+    if row is None:
+        return
+    existing = row["notes"] or ""
+    entry = f"[{now}] {note}"
+    new_notes = f"{existing}\n{entry}".strip() if existing else entry
+    conn.execute("UPDATE jobs SET notes = ? WHERE url = ?", (new_notes, job_url))
+    conn.commit()
+
+
+def get_job_notes(conn: sqlite3.Connection, job_url: str) -> str:
+    """Return all notes for a job."""
+    row = conn.execute("SELECT notes FROM jobs WHERE url = ?", (job_url,)).fetchone()
+    return (row["notes"] or "") if row else ""
+
+
+# -- Profile lookup --
+
+
+def get_latest_profile(conn: sqlite3.Connection) -> Optional[tuple[int, UserProfile]]:
+    """Return the most recently saved profile, or None if no profiles exist."""
+    row = conn.execute(
+        "SELECT * FROM profiles ORDER BY created_at DESC LIMIT 1",
+    ).fetchone()
+    if not row:
+        return None
+    profile = UserProfile(
+        name=row["name"],
+        email=row["email"],
+        phone=row["phone"],
+        location=row["location"],
+        summary=row["summary"] or "",
+        skills=json.loads(row["skills"] or "[]"),
+        experience=json.loads(row["experience"] or "[]"),
+        education=json.loads(row["education"] or "[]"),
+        certifications=json.loads(row["certifications"] or "[]"),
+        languages=json.loads(row["languages"] or "[]"),
+    )
+    return row["id"], profile
 
 
 # -- Generated output tracking --
@@ -304,3 +384,11 @@ def get_stats(conn: sqlite3.Connection) -> dict:
         "profiles": profiles,
         "generated_outputs": outputs,
     }
+
+
+def get_funnel_stats(conn: sqlite3.Connection) -> dict[str, int]:
+    """Get application funnel counts: status -> count."""
+    rows = conn.execute(
+        "SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status ORDER BY cnt DESC",
+    ).fetchall()
+    return {row["status"]: row["cnt"] for row in rows}

@@ -37,9 +37,15 @@ jobs:
           from src.document_loader import load_documents_from_dir
           from src.models import UserProfile, JobListing, UserPreferences
           from src.job_fetcher import fetch_adzuna_jobs
-          from src.job_matcher import rank_jobs_with_ollama
-          from src.cv_generator import generate_tailored_cv
-          from src.cover_letter_generator import generate_cover_letter
+          from src.job_matcher import rank_jobs_with_llm
+          from src.cv_generator import generate_tailored_cv, _validate_cv
+          from src.cover_letter_generator import generate_cover_letter, _validate_cover_letter
+          from src.llm_provider import LLMProvider, create_provider
+          from src.job_sources import JobSource, AdzunaSource, ArbeitnowSource, create_sources
+          from src.lang_detect import detect_languages_batch
+          from src.docx_utils import markdown_to_docx
+          from src.database import add_job_note, get_funnel_stats, get_job_notes
+          from src.embeddings import PIVOT_INDUSTRY_BOOST
           print('All imports OK')
           "
 

@@ -18,6 +18,7 @@ class UserProfile(BaseModel):
     education: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
     raw_text: str = ""  # Full extracted text for context
 
 
@@ -40,3 +41,6 @@ class UserPreferences(BaseModel):
     tone: str = "professional"  # formal, semi-formal, casual, enthusiastic
     style: str = "balanced"  # concise, detailed, balanced
     focus_areas: list[str] = Field(default_factory=list)
+    pivot_enabled: bool = False
+    pivot_from: list[str] = Field(default_factory=list)
+    pivot_motivation: str = ""

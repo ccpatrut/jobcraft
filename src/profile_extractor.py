@@ -1,12 +1,14 @@
-"""Extract structured profile from CV documents using Ollama."""
+"""Extract structured profile from CV documents using an LLM provider."""
 
 import json
+import logging
 import re
-from typing import Any, Optional
+from typing import Any
 
-import ollama
-
+from .llm_provider import LLMProvider
 from .models import UserProfile
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an expert professional CV/resume parser with years of experience in recruitment and talent acquisition.
 
@@ -26,7 +28,7 @@ Do not add explanations, markdown, code fences, comments, or extra text.
 
 Rules:
 - Use exactly these top-level keys:
-  "name", "email", "phone", "location", "summary", "skills", "experience", "education", "certifications", "languages"
+  "name", "email", "phone", "location", "summary", "skills", "experience", "education", "certifications", "languages", "industries"
 - If a value is not found, use:
   - null for single-value fields
   - [] for array fields
@@ -49,6 +51,7 @@ Field requirements:
 - "education": array of objects, one per education entry
 - "certifications": array of certification names
 - "languages": array of objects for spoken/written languages with proficiency levels
+- "industries": array of industry/sector keywords that describe the candidate's professional domain
 
 Output schema:
 {
@@ -83,7 +86,8 @@ Output schema:
       "language": "",
       "level": ""
     }
-  ]
+  ],
+  "industries": []
 }
 
 Extraction guidance:
@@ -110,6 +114,12 @@ Extraction guidance:
   - Use standard levels when possible: Native, Fluent, Proficient, Advanced, Intermediate, Elementary, Beginner.
   - Preserve the original level description if it differs (e.g., "C1", "B2", "Mother tongue").
   - If a language is listed without a level, use "Proficient" as default.
+- Industries:
+  - Identify the industries/sectors the candidate has worked in based on their employers and job descriptions.
+  - Use short, specific keywords: "iGaming", "online casino", "fintech", "investment banking", "SaaS", "healthtech", "automotive", "e-commerce", etc.
+  - Include both broad sectors (e.g. "gaming") and specific niches (e.g. "iGaming", "sports betting").
+  - Aim for 3-8 keywords. More is fine if the candidate has diverse experience.
+  - Do NOT include generic terms like "technology" or "business" — be specific.
 
 Important:
 - Return ONLY valid JSON.
@@ -205,18 +215,17 @@ CV:
 
 
 def _fallback_extraction(
-    combined_text: str, client: ollama.Client, model: str
+    combined_text: str,
+    provider: LLMProvider,
 ) -> UserProfile:
     """Simpler extraction when the main prompt fails or returns empty."""
     text = combined_text[:8000] + ("..." if len(combined_text) > 8000 else "")
     try:
-        resp = client.chat(
-            model=model,
+        content = provider.chat(
             messages=[{"role": "user", "content": FALLBACK_PROMPT + text}],
-            options={"temperature": 0.1, "num_predict": 500},
+            temperature=0.1,
+            max_tokens=500,
         )
-        content = resp["message"]["content"].strip()
-        content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             content = json_match.group(0)
@@ -237,53 +246,60 @@ def _fallback_extraction(
         return UserProfile(raw_text=combined_text)
 
 
-def _warmup_model(client: ollama.Client, model: str) -> None:
-    """Send a minimal request to load the model into memory (heat up)."""
+_INDUSTRY_PROMPT = """Based on this CV, list the industries and sectors the candidate has worked in.
+
+Return ONLY a JSON array of short, specific keywords. Examples: "iGaming", "online casino", "fintech", "investment banking", "SaaS", "e-commerce", "healthtech".
+Include both broad sectors (e.g. "gaming") and specific niches (e.g. "iGaming", "sports betting").
+Do NOT include generic terms like "technology" or "business".
+Aim for 3-8 keywords.
+
+CV TEXT:
+"""
+
+
+def _extract_industries(
+    text: str,
+    provider: LLMProvider,
+) -> list[str]:
+    """Focused follow-up call to extract industry keywords from the CV."""
     try:
-        client.chat(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a professional CV parser. Reply with OK."},
-                {"role": "user", "content": "OK"},
-            ],
-            options={"temperature": 0, "num_predict": 5},
+        content = provider.chat(
+            messages=[{"role": "user", "content": _INDUSTRY_PROMPT + text[:6000]}],
+            temperature=0.1,
+            max_tokens=200,
         )
+        json_match = re.search(r"\[[\s\S]*?\]", content)
+        if not json_match:
+            json_match = re.search(r"\[[\s\S]*\]", content)
+        if json_match:
+            items = json.loads(json_match.group(0))
+            if isinstance(items, list):
+                return [str(i).strip() for i in items if isinstance(i, str) and len(i.strip()) > 2]
     except Exception:
-        pass  # Warmup is best-effort; main request will load model if needed
+        pass
+    return []
 
 
-def extract_profile_with_ollama(
+def extract_profile(
     combined_text: str,
-    model: str = "qwen3:8b",
-    host: Optional[str] = None,
+    provider: LLMProvider,
     warmup: bool = True,
 ) -> UserProfile:
-    """
-    Use Ollama to extract structured profile info from raw CV text.
-    Uses a system prompt to establish expert persona and optionally warms up the model.
-    """
+    """Use the LLM provider to extract structured profile info from raw CV text."""
     max_chars = 12000
     text = combined_text[:max_chars] + ("..." if len(combined_text) > max_chars else "")
     user_content = EXTRACTION_PROMPT + text
 
-    client = ollama.Client(host=host) if host else ollama.Client()
-
     if warmup:
-        _warmup_model(client, model)
+        provider.warmup()
 
-    response = client.chat(
-        model=model,
+    content = provider.chat(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        options={"temperature": 0.2},
+        temperature=0.2,
     )
-
-    content = response["message"]["content"].strip()
-
-    # qwen3 wraps responses in <think>...</think> — strip before JSON parsing
-    content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
 
     json_match = re.search(r"\{[\s\S]*\}", content)
     if json_match:
@@ -302,18 +318,24 @@ def extract_profile_with_ollama(
             education=_to_strings(data.get("education", []), _format_education_item),
             certifications=_to_strings(data.get("certifications", [])),
             languages=_to_strings(data.get("languages", []), _format_language_item),
+            industries=_to_strings(data.get("industries", [])),
             raw_text=combined_text,
         )
-        # If we got valid JSON but all empty, try a simpler fallback extraction
         if not profile.name and not profile.skills and len(combined_text) > 100:
-            return _fallback_extraction(combined_text, client, model)
+            return _fallback_extraction(combined_text, provider)
+        if not profile.industries:
+            profile.industries = _extract_industries(text, provider)
+            if profile.industries:
+                logger.info(
+                    "Industry follow-up extracted: %s",
+                    ", ".join(profile.industries),
+                )
         return profile
     except json.JSONDecodeError:
-        # LLM returned invalid JSON - try simpler fallback
         if len(combined_text) > 100:
-            return _fallback_extraction(combined_text, client, model)
+            return _fallback_extraction(combined_text, provider)
         return UserProfile(raw_text=combined_text)
     except Exception:
         if len(combined_text) > 100:
-            return _fallback_extraction(combined_text, client, model)
+            return _fallback_extraction(combined_text, provider)
         return UserProfile(raw_text=combined_text)

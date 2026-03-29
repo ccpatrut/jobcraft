@@ -19,6 +19,14 @@ preferences:
   # e.g. ["leadership", "technical skills", "remote work experience"]
   focus_areas: []
 
+  # Career pivot: enable when transitioning to a new industry.
+  # When active, CVs emphasize transferable skills and cover letters frame the move.
+  # The "industries" field under job_search acts as the TARGET industry.
+  career_pivot:
+    enabled: true
+    from_industries: ["iGaming", "online casino", "gaming"]
+    motivation: "Passionate about food and hospitality — eager to bring my organizational skills, attention to detail, and high-pressure experience into a professional kitchen"
+
   # Default language proficiencies - used when the CV doesn't specify levels.
   # Leave empty [] to skip the Languages section when not extracted from CV.
   # Levels: Native, Fluent, Proficient, Advanced, Intermediate, Elementary, Beginner
@@ -29,17 +37,32 @@ preferences:
 
 # Job search settings
 job_search:
-  country: "ch" # Adzuna country code: de, at, ch, fr, it, gb, us
-  max_results: 50 # Jobs to fetch per search (max 50 per Adzuna page)
-  keywords: "" # Optional: additional keywords (leave empty to derive from CV)
+  country: "ch"
+  # Search mode:
+  #   "default"        - single country + locations (current behaviour)
+  #   "remote_europe"  - search all Adzuna-supported EU countries for fully remote jobs
+  #                      (forces english_only, ignores locations/radius)
+  #
+  # Adzuna limitation: the API is scoped to one country per request, so remote_europe
+  # loops over ~10 EU endpoints and deduplicates results. This uses more API quota.
+  mode: "default"
+  countries: ["ch"]
+  max_results: 50
+  keywords: "cook"
+  contract_type: ""   # "contract", "permanent", or "" (any)
+  sources: ["adzuna"]  # Job board sources: "adzuna", "arbeitnow" (free, no key needed)
 
-  # Location search: search nearby first, then expand.
+  # Override the automatic EU country list when mode is "remote_europe".
+  # Leave commented out to search all supported countries.
+  # countries: ["gb", "de", "nl", "fr"]
+
+  # Location search (default mode only — ignored in remote_europe mode).
   # Each entry is tried in order. Results are combined and deduplicated.
   # Leave empty [] to search the entire country.
   locations:
     - "Basel"
 
-  radius_km: 60 # Search radius in km around each location (0 = exact match)
+  radius_km: 60 # Search radius in km around each location (0 = exact match, default mode only)
 
   # Language strategy for search queries:
   #   "auto"          - English first, then local languages if not enough results (default)
@@ -53,25 +76,44 @@ job_search:
   # Leave empty [] to keep all results.
   exclude_languages: []
 
+  # Target industries: focus search & ranking on these sectors.
+  # When set, these REPLACE whatever the LLM extracts from the CV.
+  # Leave empty [] to auto-detect from CV content.
+  # Example: ["iGaming", "online casino", "sports betting", "gaming"]
+  industries: ["hospitality", "restaurant", "culinary", "food service", "kitchen"]
+
   # AI language validation: after the regex filter, use the LLM to re-check
   # surviving jobs for hidden language requirements the regex missed.
   # When a requirement is found, the system learns the phrase and re-filters.
   # true  = enabled (slower but catches edge cases)
   # false = disabled (rely on regex filter only)
-  ai_language_validation: true
+  ai_language_validation: false
 
   # Maximum validation rounds (each round scans remaining jobs).
   # More rounds = more thorough but slower. 2-3 is usually sufficient.
   ai_validation_rounds: 3
 
-# Ollama / AI settings
+# AI settings
 ai:
-  model: "qwen3:8b" # Model to use - run: ollama pull qwen3:8b
-  temperature: 0.7 # Lower = more consistent, Higher = more creative
-  timeout: 120 # Seconds to wait for AI response
+  # Provider: "auto" | "ollama" | "gemini"
+  #   auto   = use Gemini if GOOGLE_API_KEY is set, otherwise Ollama
+  #   ollama = always use local Ollama
+  #   gemini = always use Google Gemini (requires GOOGLE_API_KEY in .env)
+  provider: "auto"
+
+  model: "qwen3:8b"           # Ollama model – run: ollama pull qwen3:8b
+  gemini_model: "gemini-2.5-flash"  # Gemini model (used when provider is gemini/auto)
+  temperature: 0.7             # Lower = more consistent, Higher = more creative
+  timeout: 120                 # Seconds to wait for AI response
+  requests_per_minute: 14      # Gemini free-tier rate limit (max 15, keep 1 buffer)
 
   # HuggingFace embedding-based ranking (sentence-transformers/all-MiniLM-L6-v2)
   # Much faster and more accurate than pure LLM ranking.
   # Models auto-download on first run (~80MB embedder, ~1.1GB language detector).
   use_embeddings: true # false = use Ollama-only ranking (slower)
   rerank_with_llm: true # After embedding ranking, refine top results with Ollama
+
+# Output format settings
+output:
+  # Formats to generate: "md" (always), "pdf", "docx"
+  formats: ["md", "pdf"]

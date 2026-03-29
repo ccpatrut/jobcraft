@@ -94,11 +94,85 @@ This document describes each API used by the Job Finder application, with docume
 
 ---
 
+## Pipeline Architecture
+
+### Default mode (`mode: default`)
+
+Single-country search with optional location filtering.
+
+```
+CV documents
+    │
+    ▼
+[1] Load & extract text
+    │
+    ▼
+[2] Extract profile (Ollama) ─── cached in SQLite
+    │
+    ▼
+[3] Build search queries (Ollama) ──► Adzuna API (/v1/api/jobs/{country}/search)
+    │                                       │
+    │  ┌────── location loop ◄──────────────┘
+    │  │       query loop
+    │  ▼
+    Language filter (xlm-roberta) ──► Regex filter ──► AI validation (optional)
+    │
+    ▼
+[4] Rank by semantic similarity (all-MiniLM-L6-v2) + optional LLM re-rank
+    │
+    ▼
+[5] Interactive selection ──► Generate tailored CV + cover letter (Ollama)
+    │
+    ▼
+[6] Output: .md + .pdf per job
+```
+
+### Remote Europe mode (`mode: remote_europe`)
+
+Searches **all Adzuna-supported EU countries** for fully remote positions.
+
+```
+CV documents
+    │
+    ▼
+[1-2] Same as default (load CV, extract profile)
+    │
+    ▼
+[3] Build English-only queries (Ollama, country="Europe")
+    │
+    ▼                ┌─── gb ─── Adzuna API (/v1/api/jobs/gb/search)
+    Country loop ────┼─── de ─── Adzuna API (/v1/api/jobs/de/search)
+    (10 countries)   ├─── fr ─── Adzuna API (/v1/api/jobs/fr/search)
+                     ├─── ...
+                     └─── es ─── Adzuna API (/v1/api/jobs/es/search)
+    │
+    │  Deduplicate by URL
+    ▼
+    STRICT remote filter ──► must contain "remote" / "work from home"
+    │                        title must NOT be hybrid-only
+    ▼
+    English-only language filter (xlm-roberta)
+    │
+    ▼
+[4-6] Same as default (rank, select, generate)
+```
+
+**Adzuna API limitation:** Each request is scoped to a single country code
+(`/v1/api/jobs/{country}/search`). There is no pan-European endpoint.
+`remote_europe` mode works around this by issuing separate requests for each
+of the 10 supported EU countries (gb, de, fr, at, ch, it, nl, pl, be, es),
+then deduplicating and filtering the combined results. This consumes more
+API quota (~10x a single-country search).
+
+**Supported EU countries (Adzuna):** GB, DE, FR, AT, CH, IT, NL, PL, BE, ES
+
+---
+
 ## Summary
 
 | API / Model    | Primary use                    | Auth required | Cost   |
 |----------------|---------------------------------|---------------|--------|
-| Adzuna         | Multi-country job search (DE, AT, CH, FR, IT) | Yes (app_id, app_key) | Free   |
+| Adzuna         | Multi-country job search (GB, DE, AT, CH, FR, IT, NL, PL, BE, ES) | Yes (app_id, app_key) | Free   |
 | Arbeitsagentur | Germany jobs                   | Fixed client ID | Free   |
 | Arbeitnow      | Europe & remote jobs            | No            | Free   |
 | Ollama         | CV analysis, query generation, validation, CV/letter generation | No (local)  | Free   |

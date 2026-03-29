@@ -38,7 +38,6 @@ def detect_language(text: str) -> str:
 
     try:
         clf = _get_classifier()
-        # Use the first ~500 chars for speed
         result = clf(text[:500])
         if result and result[0]:
             label = result[0][0]["label"]
@@ -49,9 +48,38 @@ def detect_language(text: str) -> str:
     return "en"
 
 
-def filter_jobs_by_detected_language(
-    jobs: list, exclude_languages: list[str]
-) -> tuple[list, int]:
+def detect_languages_batch(texts: list[str], batch_size: int = 32) -> list[str]:
+    """Detect languages for multiple texts using batched HF inference.
+
+    Much faster than calling detect_language() in a loop because the
+    transformer processes batch_size texts in parallel on GPU/CPU.
+
+    Returns a list of ISO 639-1 codes, one per input text.
+    """
+    if not texts:
+        return []
+
+    clf = _get_classifier()
+    truncated = [t[:500] if t and len(t.strip()) >= 10 else "This is English." for t in texts]
+
+    results: list[str] = []
+    for i in range(0, len(truncated), batch_size):
+        batch = truncated[i : i + batch_size]
+        try:
+            preds = clf(batch)
+            for pred in preds:
+                if pred and pred[0]:
+                    results.append(pred[0]["label"].lower()[:2])
+                else:
+                    results.append("en")
+        except Exception as e:
+            logger.warning("Batch language detection failed at offset %d: %s", i, e)
+            results.extend(["en"] * len(batch))
+
+    return results
+
+
+def filter_jobs_by_detected_language(jobs: list, exclude_languages: list[str]) -> tuple[list, int]:
     """Filter out jobs whose description is primarily in an excluded language.
 
     Returns (kept_jobs, removed_count).
@@ -79,15 +107,31 @@ def filter_jobs_by_detected_language(
 _WORKING_PROFICIENCY_TIER = 4  # "Proficient" / "Advanced"
 
 _LANG_CODE_TO_TIER_KEY = {
-    "de": "german", "fr": "french", "it": "italian",
-    "es": "spanish", "nl": "dutch", "pt": "portuguese", "pl": "polish",
+    "de": "german",
+    "fr": "french",
+    "it": "italian",
+    "es": "spanish",
+    "nl": "dutch",
+    "pt": "portuguese",
+    "pl": "polish",
 }
 
 _PROFICIENCY_TIERS = {
-    "native": 6, "fluent": 5, "proficient": 4, "advanced": 4,
-    "intermediate": 3, "elementary": 2, "beginner": 1,
-    "c2": 6, "c1": 5, "b2": 4, "b1": 3, "a2": 2, "a1": 1,
-    "mother tongue": 6, "muttersprache": 6,
+    "native": 6,
+    "fluent": 5,
+    "proficient": 4,
+    "advanced": 4,
+    "intermediate": 3,
+    "elementary": 2,
+    "beginner": 1,
+    "c2": 6,
+    "c1": 5,
+    "b2": 4,
+    "b1": 3,
+    "a2": 2,
+    "a1": 1,
+    "mother tongue": 6,
+    "muttersprache": 6,
 }
 
 
@@ -95,8 +139,14 @@ def _parse_candidate_tiers(languages: list[str]) -> dict[str, int]:
     """Parse candidate language list into {lang_code: tier}."""
     result: dict[str, int] = {}
     lang_name_to_code = {
-        "english": "en", "german": "de", "french": "fr", "italian": "it",
-        "spanish": "es", "dutch": "nl", "portuguese": "pt", "polish": "pl",
+        "english": "en",
+        "german": "de",
+        "french": "fr",
+        "italian": "it",
+        "spanish": "es",
+        "dutch": "nl",
+        "portuguese": "pt",
+        "polish": "pl",
         "romanian": "ro",
     }
     for entry in languages:
@@ -141,12 +191,17 @@ def filter_jobs_by_description_language(
             kept.append(job)
         else:
             lang_name = {
-                "de": "German", "fr": "French", "it": "Italian",
+                "de": "German",
+                "fr": "French",
+                "it": "Italian",
             }.get(lang, lang)
             logger.warning(
                 "Excluded [%s posting, candidate tier %d/%d]: %s @ %s",
-                lang_name, candidate_tier, _WORKING_PROFICIENCY_TIER,
-                job.title, job.company,
+                lang_name,
+                candidate_tier,
+                _WORKING_PROFICIENCY_TIER,
+                job.title,
+                job.company,
             )
             removed += 1
 

@@ -2,9 +2,8 @@
 
 import json
 import re
-from typing import Optional
 
-import ollama
+from .llm_provider import LLMProvider
 
 COUNTRY_LANGUAGES: dict[str, list[dict[str, str]]] = {
     "ch": [
@@ -48,8 +47,7 @@ Return ONLY the JSON object, nothing else."""
 def get_localized_queries(
     query: str,
     country: str,
-    model: str = "qwen3:8b",
-    host: Optional[str] = None,
+    provider: LLMProvider | None = None,
     language_strategy: str = "auto",
 ) -> list[str]:
     """
@@ -69,18 +67,18 @@ def get_localized_queries(
     if not languages:
         return [query]
 
+    if provider is None:
+        return [query]
+
     lang_desc = ", ".join(f"{lang['code']} ({lang['name']})" for lang in languages)
     prompt = TRANSLATION_PROMPT.format(query=query, languages=lang_desc)
 
     try:
-        client = ollama.Client(host=host) if host else ollama.Client()
-        response = client.chat(
-            model=model,
+        content = provider.chat(
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1, "num_predict": 300},
+            temperature=0.1,
+            max_tokens=300,
         )
-        content = response["message"]["content"].strip()
-        content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             content = json_match.group(0)
@@ -106,36 +104,125 @@ def get_localized_queries(
 # Common marker words per language for lightweight detection.
 _LANG_MARKERS: dict[str, set[str]] = {
     "de": {
-        "und", "oder", "für", "mit", "bei", "wir", "sie", "ihre", "unser",
-        "ist", "sind", "werden", "suchen", "aufgaben", "anforderungen",
-        "berufserfahrung", "kenntnisse", "stellenangebot", "arbeitsort",
-        "bewerbung", "verantwortung", "deutsch", "gmbh",
+        "und",
+        "oder",
+        "für",
+        "mit",
+        "bei",
+        "wir",
+        "sie",
+        "ihre",
+        "unser",
+        "ist",
+        "sind",
+        "werden",
+        "suchen",
+        "aufgaben",
+        "anforderungen",
+        "berufserfahrung",
+        "kenntnisse",
+        "stellenangebot",
+        "arbeitsort",
+        "bewerbung",
+        "verantwortung",
+        "deutsch",
+        "gmbh",
     },
     "fr": {
-        "nous", "vous", "avec", "pour", "dans", "notre", "votre", "sont",
-        "les", "des", "une", "qui", "est", "recherchons", "poste",
-        "missions", "profil", "entreprise", "expérience", "candidature",
+        "nous",
+        "vous",
+        "avec",
+        "pour",
+        "dans",
+        "notre",
+        "votre",
+        "sont",
+        "les",
+        "des",
+        "une",
+        "qui",
+        "est",
+        "recherchons",
+        "poste",
+        "missions",
+        "profil",
+        "entreprise",
+        "expérience",
+        "candidature",
     },
     "it": {
-        "con", "per", "nel", "sono", "della", "delle", "nostro", "nostra",
-        "cerchiamo", "offerta", "esperienza", "competenze", "candidatura",
-        "responsabilità", "requisiti", "lavoro", "azienda",
+        "con",
+        "per",
+        "nel",
+        "sono",
+        "della",
+        "delle",
+        "nostro",
+        "nostra",
+        "cerchiamo",
+        "offerta",
+        "esperienza",
+        "competenze",
+        "candidatura",
+        "responsabilità",
+        "requisiti",
+        "lavoro",
+        "azienda",
     },
     "nl": {
-        "wij", "voor", "met", "van", "een", "het", "zijn", "onze",
-        "zoeken", "vacature", "ervaring", "functie", "werkzaamheden",
+        "wij",
+        "voor",
+        "met",
+        "van",
+        "een",
+        "het",
+        "zijn",
+        "onze",
+        "zoeken",
+        "vacature",
+        "ervaring",
+        "functie",
+        "werkzaamheden",
     },
     "es": {
-        "para", "con", "que", "los", "las", "una", "del", "nuestro",
-        "buscamos", "experiencia", "puesto", "empresa", "requisitos",
+        "para",
+        "con",
+        "que",
+        "los",
+        "las",
+        "una",
+        "del",
+        "nuestro",
+        "buscamos",
+        "experiencia",
+        "puesto",
+        "empresa",
+        "requisitos",
     },
     "pt": {
-        "para", "com", "que", "uma", "nosso", "nossa", "procuramos",
-        "experiência", "empresa", "requisitos", "candidatura",
+        "para",
+        "com",
+        "que",
+        "uma",
+        "nosso",
+        "nossa",
+        "procuramos",
+        "experiência",
+        "empresa",
+        "requisitos",
+        "candidatura",
     },
     "pl": {
-        "dla", "jest", "lub", "nasz", "szukamy", "wymagania",
-        "doświadczenie", "stanowisko", "firma", "oferta",
+        "dla",
+        "jest",
+        "lub",
+        "nasz",
+        "szukamy",
+        "wymagania",
+        "doświadczenie",
+        "stanowisko",
+        "firma",
+        "oferta",
     },
 }
 

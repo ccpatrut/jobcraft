@@ -54,6 +54,7 @@ def _strip_inline_md(text: str) -> str:
 # CV-specific PDF renderer
 # ---------------------------------------------------------------------------
 
+
 class _CvPdf(FPDF):
     """FPDF subclass with helpers for CV rendering."""
 
@@ -97,8 +98,11 @@ class _CvPdf(FPDF):
         self.ln(4)
         self.set_font("Helvetica", "B", 11)
         self.cell(
-            0, 7, _sanitize_text(title.upper()),
-            new_x="LMARGIN", new_y="NEXT",
+            0,
+            7,
+            _sanitize_text(title.upper()),
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
         self._draw_rule(0.3)
         self.ln(1)
