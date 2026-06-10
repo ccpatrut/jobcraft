@@ -4,7 +4,7 @@ import logging
 import re
 
 from .llm_provider import LLMProvider, strip_think_tags
-from .models import JobListing, UserProfile
+from .models import JobListing, UserPreferences, UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -451,20 +451,22 @@ def ai_validate_and_filter(
     return jobs, total_removed, learned_phrases
 
 
-def build_profile_summary(profile: UserProfile) -> str:
+def build_profile_summary(
+    profile: UserProfile,
+    *,
+    search_profile_summary: str = "",
+    pivot_motivation: str = "",
+    pivot_enabled: bool = False,
+) -> str:
     """Build a compact summary of the profile for matching."""
-    parts = []
-    if profile.summary:
-        parts.append(profile.summary)
-    if profile.skills:
-        parts.append("Skills: " + ", ".join(profile.skills))
-    if profile.languages:
-        parts.append("Languages: " + ", ".join(profile.languages))
-    if profile.experience:
-        parts.append("Experience: " + " | ".join(profile.experience[:5]))
-    if profile.certifications:
-        parts.append("Certifications: " + ", ".join(profile.certifications))
-    return "\n".join(parts)
+    from .profile_matching import build_matching_profile_text
+
+    return build_matching_profile_text(
+        profile,
+        search_profile_summary=search_profile_summary,
+        pivot_motivation=pivot_motivation,
+        pivot_enabled=pivot_enabled,
+    )
 
 
 MIN_SIMILARITY_SCORE = 0.35
@@ -477,6 +479,10 @@ def rank_jobs_with_embeddings(
     rerank_with_llm: bool = True,
     provider: LLMProvider | None = None,
     pivot_mode: bool = False,
+    pivot_target_keywords: list[str] | None = None,
+    prefs: UserPreferences | None = None,
+    min_similarity: float | None = None,
+    matching_text: str | None = None,
 ) -> list[JobListing]:
     """Rank jobs using sentence-transformer embeddings, with optional LLM re-ranking.
 
@@ -492,15 +498,24 @@ def rank_jobs_with_embeddings(
     print(f"  Computing semantic similarity for {len(jobs)} jobs...", flush=True)
     t0 = time.time()
 
+    threshold = min_similarity if min_similarity is not None else MIN_SIMILARITY_SCORE
+
     n_candidates = min(len(jobs), top_n * 2)
-    ranked = rank_jobs_by_similarity(profile, jobs, top_n=n_candidates, pivot_mode=pivot_mode)
+    ranked = rank_jobs_by_similarity(
+        profile,
+        jobs,
+        top_n=n_candidates,
+        pivot_mode=pivot_mode,
+        pivot_target_keywords=pivot_target_keywords,
+        matching_text=matching_text,
+    )
 
     before = len(ranked)
-    ranked = [(job, score) for job, score in ranked if score >= MIN_SIMILARITY_SCORE]
+    ranked = [(job, score) for job, score in ranked if score >= threshold]
     if before > len(ranked):
         print(
             f"  Dropped {before - len(ranked)} jobs below similarity "
-            f"threshold ({MIN_SIMILARITY_SCORE})",
+            f"threshold ({threshold})",
             flush=True,
         )
 
@@ -523,6 +538,8 @@ def rank_jobs_with_embeddings(
                 provider=provider,
                 top_n=top_n,
                 max_jobs_to_rank=len(candidate_jobs),
+                prefs=prefs,
+                pivot_target_keywords=pivot_target_keywords,
             )
             if reranked:
                 return reranked
@@ -539,6 +556,9 @@ def rank_jobs_with_llm(
     provider: LLMProvider,
     top_n: int = 5,
     max_jobs_to_rank: int = 25,
+    prefs: UserPreferences | None = None,
+    pivot_target_keywords: list[str] | None = None,
+    matching_text: str | None = None,
 ) -> list[JobListing]:
     """Use the LLM to rank jobs by fit and return top N."""
     import sys
@@ -549,7 +569,15 @@ def rank_jobs_with_llm(
         return jobs[:top_n]
 
     print(f"  Preparing {len(jobs)} jobs for ranking...", flush=True)
-    profile_summary = build_profile_summary(profile)
+    if matching_text:
+        profile_summary = matching_text
+    else:
+        pivot_enabled = bool(prefs and prefs.pivot_enabled)
+        profile_summary = build_profile_summary(
+            profile,
+            pivot_motivation=prefs.pivot_motivation if prefs else "",
+            pivot_enabled=pivot_enabled,
+        )
 
     job_lines = []
     for i, j in enumerate(jobs):
@@ -561,6 +589,14 @@ def rank_jobs_with_llm(
         job_lines.append(f"{i}: {j.title} @ {j.company} - {desc}")
     jobs_text = "\n".join(job_lines)
 
+    pivot_rules = ""
+    if prefs and prefs.pivot_enabled and pivot_target_keywords:
+        from_ind = ", ".join(prefs.pivot_from) if prefs.pivot_from else "their previous sector(s)"
+        tgt = ", ".join(pivot_target_keywords)
+        pivot_rules = f"""
+- CAREER PIVOT: The candidate is moving FROM {from_ind} INTO roles aligned with: {tgt}. REJECT jobs that require roughly 5+ years of prior experience specifically in that target sector (e.g. deep hotel/hospitality/luxury-hotel tenure, long-standing HORECA or gastronomy insider track) unless the posting is clearly entry-level, trainee, or explicitly open to career changers. Titles like "Hospitality Clients Manager" at a luxury group often expect an established hospitality-sector book of business—exclude those when requirements imply that depth and the candidate is pivoting in.
+"""
+
     prompt = f"""You are a job matching expert. Given this candidate profile and a list of jobs, select the TOP {top_n} jobs that best match the candidate's experience, skills, and background.
 
 IMPORTANT RULES:
@@ -570,7 +606,7 @@ IMPORTANT RULES:
 - EXCLUDE jobs that require fluent/native proficiency in a language the candidate only has at Intermediate, Elementary, or Beginner level.
   For example: if the candidate has "German - Intermediate" or "German - B1", do NOT select a job that requires "fließende Deutschkenntnisse" (fluent German) or "Muttersprache Deutsch" (native German).
 - Prefer jobs where the candidate meets ALL stated language requirements.
-- Among qualifying jobs, rank by: 1) industry match, 2) skills/requirements match (candidate actually qualifies), 3) role/seniority alignment.
+{pivot_rules}- Among qualifying jobs, rank by: 1) industry match, 2) skills/requirements match (candidate actually qualifies), 3) role/seniority alignment.
 - If fewer than {top_n} jobs are a genuine match, return only the ones that truly fit. Do NOT pad the list with poor matches.
 
 CANDIDATE PROFILE:

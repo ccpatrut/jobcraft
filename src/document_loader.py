@@ -41,14 +41,20 @@ def load_documents_from_dir(directory: str | Path) -> tuple[list[str], str]:
         return [], f"[Directory not found: {path}]"
 
     texts: list[str] = []
-    supported = {".pdf", ".docx"}
+    supported = {".pdf", ".docx", ".txt", ".md"}
 
     for file_path in sorted(path.iterdir()):
         if file_path.is_file() and file_path.suffix.lower() in supported:
-            if file_path.suffix.lower() == ".pdf":
+            suffix = file_path.suffix.lower()
+            if suffix == ".pdf":
                 text = extract_text_from_pdf(file_path)
-            else:
+            elif suffix == ".docx":
                 text = extract_text_from_docx(file_path)
+            else:
+                try:
+                    text = file_path.read_text(encoding="utf-8").strip()
+                except Exception as e:
+                    text = f"[Error reading {file_path.name}: {e}]"
             if text and not text.startswith("[Error"):
                 texts.append(f"--- {file_path.name} ---\n{text}")
 

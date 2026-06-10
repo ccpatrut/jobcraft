@@ -122,6 +122,7 @@ _PROFICIENCY_TIERS = {
     "proficient": 4,
     "advanced": 4,
     "intermediate": 3,
+    "intermediary": 3,
     "elementary": 2,
     "beginner": 1,
     "c2": 6,
@@ -160,12 +161,14 @@ def _parse_candidate_tiers(languages: list[str]) -> dict[str, int]:
 
 
 def filter_jobs_by_description_language(
-    jobs: list, candidate_languages: list[str]
+    jobs: list,
+    candidate_languages: list[str],
+    min_tier: int | None = None,
 ) -> tuple[list, int]:
     """Filter out jobs whose description is in a language the candidate isn't proficient in.
 
     If a job posting is written entirely in German, the candidate needs at least
-    Advanced/Proficient German to be a realistic applicant. English postings are
+    ``min_tier`` German proficiency (default: Proficient/B2). English postings are
     always kept regardless.
 
     Returns (kept_jobs, removed_count).
@@ -173,6 +176,7 @@ def filter_jobs_by_description_language(
     if not candidate_languages:
         return jobs, 0
 
+    required_tier = min_tier if min_tier is not None else _WORKING_PROFICIENCY_TIER
     candidate_tiers = _parse_candidate_tiers(candidate_languages)
     kept = []
     removed = 0
@@ -187,7 +191,7 @@ def filter_jobs_by_description_language(
             continue
 
         candidate_tier = candidate_tiers.get(lang, 0)
-        if candidate_tier >= _WORKING_PROFICIENCY_TIER:
+        if candidate_tier >= required_tier:
             kept.append(job)
         else:
             lang_name = {
@@ -199,7 +203,7 @@ def filter_jobs_by_description_language(
                 "Excluded [%s posting, candidate tier %d/%d]: %s @ %s",
                 lang_name,
                 candidate_tier,
-                _WORKING_PROFICIENCY_TIER,
+                required_tier,
                 job.title,
                 job.company,
             )

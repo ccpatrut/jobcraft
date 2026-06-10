@@ -35,6 +35,7 @@ class JobSource(ABC):
         max_results: int = 50,
         distance_km: int = 0,
         contract_type: str = "",
+        salary_min: int = 0,
     ) -> list[JobListing]:
         """Fetch jobs matching the query. Returns a list of JobListing."""
 
@@ -54,6 +55,7 @@ class AdzunaSource(JobSource):
         max_results: int = 50,
         distance_km: int = 0,
         contract_type: str = "",
+        salary_min: int = 0,
     ) -> list[JobListing]:
         from .job_fetcher import fetch_adzuna_jobs
 
@@ -64,6 +66,7 @@ class AdzunaSource(JobSource):
             results_per_page=max_results,
             distance_km=distance_km,
             contract_type=contract_type,
+            salary_min=salary_min,
         )
 
 
@@ -84,6 +87,7 @@ class ArbeitnowSource(JobSource):
         max_results: int = 50,
         distance_km: int = 0,
         contract_type: str = "",
+        salary_min: int = 0,
     ) -> list[JobListing]:
         jobs: list[JobListing] = []
         seen_slugs: set[str] = set()

@@ -51,6 +51,9 @@ from .query_translator import (
     get_country_name,
     get_localized_queries,
 )
+from .language_config import apply_language_config
+from .location_filter import filter_jobs_by_search_area
+from .profile_matching import build_matching_profile_text
 from .spinner import Spinner
 
 logger = logging.getLogger(__name__)
@@ -87,15 +90,22 @@ class PipelineConfig:
     exclude_languages: list[str]
     locations: list[str]
     radius_km: int
+    search_nationwide: bool
     use_embeddings: bool
     rerank_with_llm: bool
     ai_validation_enabled: bool
     ai_validation_rounds: int
     default_languages: list[str]
+    config_languages: list[str]
+    languages_mode: str
+    search_profile_summary: str
+    description_language_min_tier: int
+    min_similarity: float
     target_industries: list[str]
     prefs: UserPreferences
     temperature: float = 0.7
     contract_type: str = ""
+    salary_min: int = 0
     remote_only: bool = False
     fresh: bool = False
     cached: bool = False
@@ -129,6 +139,15 @@ class PipelineConfig:
             locations = job_cfg.get("locations", []) or []
 
         provider = create_provider(ai_cfg)
+        prefs = get_preferences(cfg)
+        pref_cfg = cfg.get("preferences", {})
+        job_min_sim = job_cfg.get("min_similarity")
+        if job_min_sim is None and prefs.pivot_enabled:
+            min_similarity = 0.25
+        elif job_min_sim is not None:
+            min_similarity = float(job_min_sim)
+        else:
+            min_similarity = 0.35
 
         return cls(
             cv_dir=Path(cfg["cv_input_dir"]).expanduser().resolve(),
@@ -141,15 +160,24 @@ class PipelineConfig:
             exclude_languages=job_cfg.get("exclude_languages", []) or [],
             locations=locations,
             radius_km=int(job_cfg.get("radius_km", 0)),
+            search_nationwide=bool(job_cfg.get("search_nationwide", False)),
             use_embeddings=ai_cfg.get("use_embeddings", True),
             rerank_with_llm=ai_cfg.get("rerank_with_llm", True),
             ai_validation_enabled=job_cfg.get("ai_language_validation", False),
             ai_validation_rounds=job_cfg.get("ai_validation_rounds", 3),
-            default_languages=cfg.get("preferences", {}).get("default_languages", []) or [],
+            default_languages=pref_cfg.get("default_languages", []) or [],
+            config_languages=pref_cfg.get("languages", []) or [],
+            languages_mode=str(pref_cfg.get("languages_mode", "override")),
+            search_profile_summary=str(pref_cfg.get("search_profile_summary", "") or "").strip(),
+            description_language_min_tier=int(
+                job_cfg.get("description_language_min_tier", 4),
+            ),
+            min_similarity=min_similarity,
             target_industries=job_cfg.get("industries", []) or [],
-            prefs=get_preferences(cfg),
+            prefs=prefs,
             temperature=float(ai_cfg.get("temperature", 0.7)),
             contract_type=job_cfg.get("contract_type", "").strip(),
+            salary_min=int(job_cfg.get("salary_min", 0)),
             remote_only=remote_only,
             fresh=fresh,
             cached=cached,
@@ -292,7 +320,10 @@ def step_extract_profile(
                 ) from e
             raise ConnectionError(f"AI provider '{provider.name}' failed. Details: {e}") from e
 
-    if not profile.languages and cfg.default_languages:
+    if cfg.config_languages:
+        apply_language_config(profile, cfg.config_languages, cfg.languages_mode)
+        print(f"  Languages ({cfg.languages_mode}): {', '.join(profile.languages)}")
+    elif not profile.languages and cfg.default_languages:
         profile.languages = cfg.default_languages
         print("  Using default languages from config.yaml")
 
@@ -388,6 +419,7 @@ def _filter_multilingual(
             jobs, desc_lang_removed = filter_jobs_by_description_language(
                 jobs,
                 profile.languages,
+                min_tier=cfg.description_language_min_tier,
             )
         if desc_lang_removed:
             print(f"  Removed {desc_lang_removed} jobs in languages beyond your proficiency")
@@ -444,6 +476,22 @@ def _deduplicate_jobs(
     return unique, len(jobs) - len(unique)
 
 
+def _apply_location_filter(
+    jobs: list[JobListing],
+    cfg: PipelineConfig,
+) -> list[JobListing]:
+    """Drop jobs outside configured locations (e.g. Geneva when searching Basel)."""
+    if not cfg.locations:
+        return jobs
+    filtered, removed = filter_jobs_by_search_area(jobs, cfg.locations)
+    if removed:
+        print(
+            f"  Location filter ({', '.join(cfg.locations)}): "
+            f"kept {len(filtered)}, removed {removed} outside area"
+        )
+    return filtered
+
+
 def _cache_fallback(
     conn,
     jobs: list[JobListing],
@@ -490,7 +538,7 @@ def _cache_fallback(
         print(f"  Found {added} additional jobs from database cache (total: {len(jobs)})")
     else:
         print("  No additional matches found in database cache.")
-    return jobs
+    return _apply_location_filter(jobs, cfg)
 
 
 def _ai_validation_pass(
@@ -524,7 +572,12 @@ def _fetch_from_sources(
     from .job_sources import create_sources
 
     sources = create_sources(cfg.source_names)
-    search_locations = cfg.locations + [""] if cfg.locations else [""]
+    if cfg.locations:
+        search_locations = list(cfg.locations)
+        if cfg.search_nationwide:
+            search_locations.append("")
+    else:
+        search_locations = [""]
 
     tasks: list[tuple[str, str, str, str]] = []
     for src in sources:
@@ -572,6 +625,7 @@ def _fetch_from_sources(
                 max_results=cfg.max_results,
                 distance_km=cfg.radius_km if loc else 0,
                 contract_type=cfg.contract_type,
+                salary_min=cfg.salary_min,
             )
             return source_name, country, label, query, batch
         except ValueError:
@@ -674,6 +728,7 @@ def step_fetch_and_filter_jobs(
             jobs, candidate_langs = _filter_english_only(jobs, candidate_langs)
         else:
             jobs = _filter_multilingual(jobs, profile, cfg)
+        jobs = _apply_location_filter(jobs, cfg)
         jobs, n_dupes = _deduplicate_jobs(jobs)
         return FetchResult(
             jobs=jobs,
@@ -716,6 +771,8 @@ def step_fetch_and_filter_jobs(
         new_saved_total += n
 
     total_fetched = len(jobs)
+
+    jobs = _apply_location_filter(jobs, cfg)
 
     # ── Remote filter ──
     if cfg.remote_only:
@@ -780,6 +837,13 @@ def step_rank_jobs(
 ) -> RankResult:
     """Rank jobs by relevance to the candidate profile."""
     pivot_mode = cfg.prefs.pivot_enabled
+    pivot_target_keywords = list(cfg.target_industries) if pivot_mode else []
+    matching_text = build_matching_profile_text(
+        profile,
+        search_profile_summary=cfg.search_profile_summary,
+        pivot_motivation=cfg.prefs.pivot_motivation,
+        pivot_enabled=pivot_mode,
+    )
 
     if cfg.use_embeddings:
         print("\n[4/6] Ranking jobs by semantic similarity (embeddings)...")
@@ -787,10 +851,14 @@ def step_rank_jobs(
             top_jobs = rank_jobs_with_embeddings(
                 profile,
                 jobs,
-                top_n=10,
+                top_n=20,
                 rerank_with_llm=cfg.rerank_with_llm,
                 provider=cfg.provider,
                 pivot_mode=pivot_mode,
+                pivot_target_keywords=pivot_target_keywords or None,
+                prefs=cfg.prefs,
+                min_similarity=cfg.min_similarity,
+                matching_text=matching_text,
             )
             return RankResult(top_jobs=top_jobs, method="embeddings")
         except Exception as e:
@@ -802,7 +870,10 @@ def step_rank_jobs(
             profile,
             jobs,
             provider=cfg.provider,
-            top_n=10,
+            top_n=20,
+            prefs=cfg.prefs,
+            pivot_target_keywords=pivot_target_keywords or None,
+            matching_text=matching_text,
         )
     except Exception as e:
         print("  ERROR ranking jobs:", e)

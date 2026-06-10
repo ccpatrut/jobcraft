@@ -108,7 +108,8 @@ Extraction guidance:
   - Do not include vague personality traits unless clearly framed as professional competencies.
 - Certifications:
   - Extract named certifications only.
-  - Do not move degrees into certifications.
+  - Include culinary/hospitality school awards (e.g. Kitchen & Larder, Pastry & Baking) as certifications when listed under education or training.
+  - Do not move university degrees into certifications.
 - Languages:
   - Extract each spoken/written language with its proficiency level.
   - Use standard levels when possible: Native, Fluent, Proficient, Advanced, Intermediate, Elementary, Beginner.

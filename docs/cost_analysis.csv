@@ -1,0 +1,100 @@
+Section,Item,Details,Input Tokens,Output Tokens,Cost (USD),Notes
+,,,,,,
+=== GEMINI 2.5 FLASH PRICING ===,,,,,,
+Pricing,Input tokens,Per 1M tokens,,,0.30,
+Pricing,Output tokens,Per 1M tokens,,,2.50,
+Pricing,Flash-Lite input,Per 1M tokens (budget alternative),,,0.10,60% cheaper than Flash
+Pricing,Flash-Lite output,Per 1M tokens (budget alternative),,,0.40,
+,,,,,,
+=== COST PER AI OPERATION ===,,,,,,
+AI Operation,Profile extraction,CV text + system prompt -> structured profile,2500,800,0.003,Cached by CV hash - only runs once per CV
+AI Operation,Career path analysis,Profile -> 5 industry suggestions + skill gaps,2000,2000,0.006,Cache per profile
+AI Operation,Search query generation,Profile -> search queries,800,200,0.001,
+AI Operation,Query translation,Per language (~3 calls),500,300,0.001,Could use Flash-Lite
+AI Operation,LLM re-ranking,10 job descriptions + profile,6000,500,0.003,Optional - embeddings do most of the work
+AI Operation,CV generation,Per job,3000,1500,0.005,
+AI Operation,Cover letter generation,Per job,2500,800,0.003,
+AI Operation,Learning plan generation,Per career path,1500,1500,0.004,Could use Flash-Lite
+,,,,,,
+=== TYPICAL USER SESSION ===,,,,,,
+User Session,Upload + profile extraction,One-time per CV,,, 0.003,
+User Session,Career path analysis,5 paths,,,0.006,
+User Session,Search + query translation,One search,,,0.002,
+User Session,Job ranking,Embedding + LLM rerank,,,0.003,
+User Session,Generate 3 CVs,,,,0.015,
+User Session,Generate 3 cover letters,,,,0.009,
+User Session,Learning plan for 1 path,,,,0.004,
+User Session,TOTAL PER SESSION,,,,0.042,~4 cents per user session
+,,,,,,
+=== EMBEDDING COSTS: SELF-HOSTED vs API ===,,,,,,
+Embeddings,Self-hosted (all-MiniLM-L6-v2),~200MB RAM on server,,,0.00,Free - included in Railway compute
+Embeddings,Gemini Embedding API,$0.20/1M tokens,4500,,0.001,Per ranking batch (20 jobs)
+Embeddings,Recommendation,Self-host on Railway,,,0.00,Free and fast enough on CPU
+,,,,,,
+=== INFRASTRUCTURE - EARLY STAGE (0-100 users) ===,,,,,,
+Infrastructure,Vercel (frontend),Pro plan - required for commercial use,,,20.00,Hobby plan is non-commercial only
+Infrastructure,Railway (API + worker),Hobby ($5 sub + ~$5 usage),,,10.00,
+Infrastructure,Neon (PostgreSQL),Free tier (0.5 GB / 100 CU-hours),,,0.00,
+Infrastructure,Upstash (Redis),Free tier (500K commands),,,0.00,
+Infrastructure,Cloudflare R2 (files),Free tier (10 GB / zero egress),,,0.00,
+Infrastructure,Clerk (auth),Free tier (10K MAU),,,0.00,
+Infrastructure,Gemini API,~100 users x 2 sessions x $0.04,,,8.00,
+Infrastructure,Domain,.com or .io (amortized),,,1.00,
+Infrastructure,TOTAL EARLY STAGE,0-100 users,,,39.00,Per month
+,,,,,,
+=== INFRASTRUCTURE - GROWTH STAGE (500 users / ~100 paying) ===,,,,,,
+Infrastructure,Vercel (frontend),Pro,,,20.00,
+Infrastructure,Railway (API + worker),Higher usage (~1 GB RAM),,,20.00,
+Infrastructure,Neon (PostgreSQL),Launch plan (~2 GB),,,15.00,
+Infrastructure,Upstash (Redis),Pay-as-you-go,,,2.00,
+Infrastructure,Cloudflare R2 (files),~5 GB (within free tier),,,0.00,
+Infrastructure,Clerk (auth),Free tier (under 10K MAU),,,0.00,
+Infrastructure,Gemini API,500 users x 3 sessions x $0.04,,,60.00,
+Infrastructure,Stripe fees,2.9% + $0.30 on ~$1500 revenue,,,45.00,
+Infrastructure,TOTAL GROWTH STAGE,500 users / 100 paying,,,162.00,Per month
+Infrastructure,Estimated revenue,100 users x 15 EUR/mo,,,1500.00,EUR per month
+Infrastructure,Margin,,,,89%,
+,,,,,,
+=== INFRASTRUCTURE - SCALE STAGE (2000 users / ~500 paying) ===,,,,,,
+Infrastructure,Vercel (frontend),Pro,,,20.00,
+Infrastructure,Railway (API + worker),Pro plan / 2 GB RAM / dedicated worker,,,50.00,
+Infrastructure,Neon (PostgreSQL),Launch plan (~10 GB),,,25.00,
+Infrastructure,Upstash (Redis),Fixed $10 plan,,,10.00,
+Infrastructure,Cloudflare R2 (files),~20 GB,,,0.15,
+Infrastructure,Clerk (auth),Pro (if > 10K MAU),,,20.00,
+Infrastructure,Gemini API,2000 users x 4 sessions x $0.04,,,320.00,
+Infrastructure,Stripe fees,on ~$7500 revenue,,,250.00,
+Infrastructure,TOTAL SCALE STAGE,2000 users / 500 paying,,,695.15,Per month
+Infrastructure,Estimated revenue,500 users x 15 EUR/mo,,,7500.00,EUR per month
+Infrastructure,Margin,,,,91%,
+,,,,,,
+=== PRICING TIERS (PROPOSED) ===,,,,,,
+Pricing Tier,Free,0 EUR/mo,,,"1 CV upload, 1 career path, 3 job matches, 2 doc generations",
+Pricing Tier,Explorer,12-19 EUR/mo,,,"All paths + full gap analysis + unlimited matches + 5 docs/mo",
+Pricing Tier,Pro,29-39 EUR/mo,,,"Unlimited everything + learning plan + job alerts + tracker",
+Pricing Tier,Pivot Pack (one-time),49-79 EUR,,,"Full analysis + 20 matches + all docs generated",
+,,,,,,
+=== BREAK-EVEN ANALYSIS ===,,,,,,
+Break-even,Monthly fixed costs,Infrastructure (early stage),,,39.00,
+Break-even,Cost per paying user,AI + marginal infra,,,0.50,Per month estimate
+Break-even,Revenue per paying user,Average (Explorer plan),,,15.00,
+Break-even,Break-even point,Number of paying users needed,,,3,3 paying users covers all infrastructure
+Break-even,Time to $1K MRR,Paying users needed at 15 EUR avg,,,67,
+Break-even,Time to $5K MRR,Paying users needed at 15 EUR avg,,,334,
+,,,,,,
+=== COST OPTIMIZATION STRATEGIES ===,,,,,,
+Optimization,Use Flash-Lite for low-stakes ops,Query translation / learning plans,,,~40% savings on those calls,Day 1
+Optimization,Cache profile extraction,Already built - CV hash based,,,Avoids repeat extraction,Already done
+Optimization,Batch API (Gemini),50% discount on non-realtime calls,,,Up to 50% on batch ops,When latency is not critical
+Optimization,Cache career path analysis,Per profile hash,,,Avoids re-analyzing same profile,Day 1
+Optimization,Cache job descriptions,Already built in database,,,Avoids re-fetching from API,Already done
+Optimization,Lazy-load ML models,Only in worker process,,,Saves RAM on API server,Separate API from worker
+Optimization,Rate limit free users,Max 5 pipeline runs/day,,,Prevents abuse,Day 1
+,,,,,,
+=== RISK FACTORS ===,,,,,,
+Risk,API abuse,Malicious/careless users triggering many runs,,,Rate limit + credit system,Enforce in API middleware
+Risk,Railway RAM for ML models,all-MiniLM-L6-v2 + xlm-roberta = ~1.3 GB,,,~$20/mo for 2 GB RAM,Switch to Gemini embeddings API if too costly
+Risk,Vercel commercial use,Hobby plan is non-commercial only,,,Must use Pro at $20/mo,Non-negotiable for paid product
+Risk,Stripe transaction fees,2.9% + $0.30 per charge,,,~5% on $15 subscriptions,Industry standard / unavoidable
+Risk,PDF generation CPU spikes,fpdf2 is CPU-bound,,,Throttled by ARQ workers,Workers process one task at a time
+Risk,Gemini rate limits,Flash: 2000 RPM / 4M TPM,,,More than enough for early stage,Monitor usage dashboard

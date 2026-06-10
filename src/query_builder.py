@@ -39,8 +39,11 @@ QUERY_GEN_PIVOT_PROMPT = """You are a job market expert helping a candidate tran
 
 CANDIDATE:
 Name: {name}
+Location: {location}
 Summary: {summary}
 Skills (transferable): {skills}
+Education and training: {education}
+Certifications: {certifications}
 Previous experience: {experience}
 Previous industries: {from_industries}
 
@@ -54,13 +57,14 @@ The candidate is making a CAREER PIVOT from {from_industries} into {target_indus
 Rules:
 - Focus ENTIRELY on job titles in the TARGET industries ({target_industries}).
 - Do NOT generate queries for the candidate's OLD industry ({from_industries}).
-- Include a mix of: direct role titles (e.g. "Line Cook", "Commis Chef"), entry-level roles, and roles that value management/organizational skills from outside the industry.
-- Consider what the {country} job market calls these roles — use local conventions.
+- Prioritize culinary training and education when generating kitchen/bakery/service queries.
+- Include a mix of: direct role titles (e.g. "Commis Chef", "Küchenhilfe", "Bäckerei"), entry-level roles, and Aushilfe/Stundenlohn-style roles.
+- Consider what the {country} job market calls these roles — use German and English local conventions.
 - Keep each query 2-5 words. Job titles only, no full sentences.
 - Order from most accessible (easiest transition) to aspirational.
 
 Return ONLY a JSON array of strings. Example for hospitality pivot:
-["Commis Chef", "Line Cook", "Kitchen Assistant", "Restaurant Manager", "Hospitality Coordinator", "Food Service Supervisor", "Catering Assistant", "Kitchen Porter"]
+["Küchenhilfe", "Commis de Cuisine", "Kitchen Assistant", "Bäckerei", "Konditor", "Aushilfe Gastronomie", "Spüler", "Kellner"]
 """
 
 
@@ -126,13 +130,19 @@ def ai_generate_queries(
     """Use the LLM to generate job search queries from the profile."""
     skills_str = ", ".join(profile.skills[:15]) if profile.skills else "N/A"
     exp_str = "; ".join(e[:100] for e in profile.experience[:4]) if profile.experience else "N/A"
+    edu_str = "; ".join(e[:120] for e in profile.education[:3]) if profile.education else "N/A"
+    cert_str = ", ".join(profile.certifications[:8]) if profile.certifications else "N/A"
+    location = profile.location or "N/A"
 
     if prefs and prefs.pivot_enabled and profile.industries:
         from_ind = ", ".join(prefs.pivot_from) if prefs.pivot_from else "their previous industry"
         prompt = QUERY_GEN_PIVOT_PROMPT.format(
             name=profile.name or "Candidate",
+            location=location,
             summary=(profile.summary or "")[:300],
             skills=skills_str,
+            education=edu_str,
+            certifications=cert_str,
             experience=exp_str,
             from_industries=from_ind,
             target_industries=", ".join(profile.industries),

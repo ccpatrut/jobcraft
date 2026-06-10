@@ -1,7 +1,6 @@
 # Job Finder - User Configuration
 
-# Path to directory containing your CVs (PDF, Word)
-# Drop all your CVs, certifications, experience documents here
+# Path to directory containing your CVs (PDF, Word, .txt supplements)
 cv_input_dir: "./cv_input"
 
 # Output directory for generated tailored CVs and cover letters
@@ -9,111 +8,94 @@ output_dir: "./output"
 
 # User preferences - affects tone and style of generated content
 preferences:
-  # Tone: formal | semi-formal | casual | enthusiastic | professional
   tone: "professional"
-
-  # Writing style: concise | detailed | balanced
   style: "balanced"
 
-  # Focus areas to emphasize (optional, from your CV)
-  # e.g. ["leadership", "technical skills", "remote work experience"]
-  focus_areas: []
+  # Used for job matching/ranking only (not CV generation tone)
+  search_profile_summary: >
+    Career change into Basel-area gastronomy. Malta culinary training
+    (Kitchen & Larder, Pastry & Baking). Seeking commis, kitchen assistant,
+    bakery helper, or restaurant service / Aushilfe roles.
 
-  # Career pivot: enable when transitioning to a new industry.
-  # When active, CVs emphasize transferable skills and cover letters frame the move.
-  # The "industries" field under job_search acts as the TARGET industry.
+  # Override CV-extracted languages (mode: override | merge)
+  languages_mode: override
+  languages:
+    - "English - Proficient"
+    - "German - B2"
+    - "Spanish - Proficient"
+    - "French - Beginner"
+
+  focus_areas:
+    - "food hygiene and kitchen operations"
+    - "pastry and baking fundamentals"
+    - "customer service"
+    - "teamwork under pressure"
+    - "multilingual service (English, Spanish, German)"
+
   career_pivot:
     enabled: true
-    from_industries: ["iGaming", "online casino", "gaming"]
-    motivation: "Passionate about food and hospitality — eager to bring my organizational skills, attention to detail, and high-pressure experience into a professional kitchen"
+    from_industries: ["account management", "igaming", "tech sales", "digital marketing"]
+    motivation: >
+      Transitioning into Basel-region kitchen, bakery, and restaurant service.
+      Malta Institute culinary training (Kitchen & Larder, Pastry & Baking).
+      Open to Commis, Küchenhilfe, Aushilfe, and entry-level gastronomy roles.
 
-  # Default language proficiencies - used when the CV doesn't specify levels.
-  # Leave empty [] to skip the Languages section when not extracted from CV.
-  # Levels: Native, Fluent, Proficient, Advanced, Intermediate, Elementary, Beginner
   default_languages:
     - "English - Proficient"
-    - "German - Beginner"
+    - "German - B2"
+    - "Spanish - Proficient"
     - "French - Beginner"
 
 # Job search settings
 job_search:
   country: "ch"
-  # Search mode:
-  #   "default"        - single country + locations (current behaviour)
-  #   "remote_europe"  - search all Adzuna-supported EU countries for fully remote jobs
-  #                      (forces english_only, ignores locations/radius)
-  #
-  # Adzuna limitation: the API is scoped to one country per request, so remote_europe
-  # loops over ~10 EU endpoints and deduplicates results. This uses more API quota.
   mode: "default"
   countries: ["ch"]
   max_results: 50
-  keywords: "cook"
-  contract_type: ""   # "contract", "permanent", or "" (any)
-  sources: ["adzuna"]  # Job board sources: "adzuna", "arbeitnow" (free, no key needed)
+  keywords: >-
+    aushilfe gastronomie küchenhilfe commis de cuisine commis de rang
+    kellner service restaurant spüler bäckerei bäcker konditor patisserie
+    pastry assistant kitchen porter catering helfer küche
+  contract_type: ""
+  salary_min: 0
+  sources: ["adzuna", "arbeitnow"]
 
-  # Override the automatic EU country list when mode is "remote_europe".
-  # Leave commented out to search all supported countries.
-  # countries: ["gb", "de", "nl", "fr"]
+  locations: ["Basel"]
+  radius_km: 35
+  search_nationwide: false
 
-  # Location search (default mode only — ignored in remote_europe mode).
-  # Each entry is tried in order. Results are combined and deduplicated.
-  # Leave empty [] to search the entire country.
-  locations:
-    - "Basel"
-
-  radius_km: 60 # Search radius in km around each location (0 = exact match, default mode only)
-
-  # Language strategy for search queries:
-  #   "auto"          - English first, then local languages if not enough results (default)
-  #   "english_only"  - search only in English, skip local translations
-  #   "local_first"   - local languages first, then English as fallback
   language: "auto"
-
-  # Exclude jobs whose title or description contains text in these languages.
-  # Use ISO language codes: de, fr, it, nl, es, pt, pl
-  # Example: ["de"] to skip German-language postings in Switzerland
-  # Leave empty [] to keep all results.
   exclude_languages: []
 
-  # Target industries: focus search & ranking on these sectors.
-  # When set, these REPLACE whatever the LLM extracts from the CV.
-  # Leave empty [] to auto-detect from CV content.
-  # Example: ["iGaming", "online casino", "sports betting", "gaming"]
-  industries: ["hospitality", "restaurant", "culinary", "food service", "kitchen"]
+  # Tier 3 = B1/intermediate — keeps German job ads in CH (tier 4 = B2+ only)
+  description_language_min_tier: 3
 
-  # AI language validation: after the regex filter, use the LLM to re-check
-  # surviving jobs for hidden language requirements the regex missed.
-  # When a requirement is found, the system learns the phrase and re-filters.
-  # true  = enabled (slower but catches edge cases)
-  # false = disabled (rely on regex filter only)
+  # Embedding cutoff; career_pivot uses 0.25 when min_similarity unset
+  min_similarity: 0.25
+
+  industries:
+    - "bakery"
+    - "bäckerei"
+    - "pastry"
+    - "kitchen"
+    - "gastronomy"
+    - "restaurant"
+    - "catering"
+    - "food service"
+
   ai_language_validation: false
-
-  # Maximum validation rounds (each round scans remaining jobs).
-  # More rounds = more thorough but slower. 2-3 is usually sufficient.
   ai_validation_rounds: 3
 
 # AI settings
 ai:
-  # Provider: "auto" | "ollama" | "gemini"
-  #   auto   = use Gemini if GOOGLE_API_KEY is set, otherwise Ollama
-  #   ollama = always use local Ollama
-  #   gemini = always use Google Gemini (requires GOOGLE_API_KEY in .env)
   provider: "auto"
+  model: "qwen3:8b"
+  gemini_model: "gemini-2.5-flash"
+  temperature: 0.7
+  timeout: 120
+  requests_per_minute: 14
+  use_embeddings: true
+  rerank_with_llm: true
 
-  model: "qwen3:8b"           # Ollama model – run: ollama pull qwen3:8b
-  gemini_model: "gemini-2.5-flash"  # Gemini model (used when provider is gemini/auto)
-  temperature: 0.7             # Lower = more consistent, Higher = more creative
-  timeout: 120                 # Seconds to wait for AI response
-  requests_per_minute: 14      # Gemini free-tier rate limit (max 15, keep 1 buffer)
-
-  # HuggingFace embedding-based ranking (sentence-transformers/all-MiniLM-L6-v2)
-  # Much faster and more accurate than pure LLM ranking.
-  # Models auto-download on first run (~80MB embedder, ~1.1GB language detector).
-  use_embeddings: true # false = use Ollama-only ranking (slower)
-  rerank_with_llm: true # After embedding ranking, refine top results with Ollama
-
-# Output format settings
 output:
-  # Formats to generate: "md" (always), "pdf", "docx"
-  formats: ["md", "pdf"]
+  formats: ["pdf", "docx"]

@@ -30,6 +30,57 @@ INDUSTRY_BOOST = 0.25  # max score bonus for a perfect industry keyword overlap
 PIVOT_INDUSTRY_BOOST = 0.40  # stronger boost when career pivot is active
 MISMATCH_PENALTY = 0.30  # max score penalty for hard skill mismatch
 
+# Career pivot: penalise jobs that demand many years in the *target* sector the
+# candidate is entering (they typically lack that tenure even when the role title fits).
+PIVOT_SECTOR_TENURE_MIN_YEARS = 5
+PIVOT_SECTOR_TENURE_PENALTY = 0.45  # multiplied by weight 0.85–1.0 from signal strength
+
+_SECTOR_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "hospitality": (
+        "hospitality",
+        "hotel",
+        "hotels",
+        "hotellerie",
+        "hôtellerie",
+        "horeca",
+        "hostellerie",
+    ),
+    "hotel": ("hotel", "hotels", "hotellerie", "hôtellerie", "lodging"),
+    "restaurant": ("restaurant", "restaurants", "gastronomy", "gastronomie", "dining"),
+    "gastronomy": ("gastronomy", "gastronomie", "culinary", "restaurant"),
+    "catering": ("catering", "banquet", "banqueting"),
+    "bar": ("beverage", "sommelier", "mixology"),
+    "food service": ("food service", "foodservice", "f&b", "f and b", "f/b"),
+    "front office": ("front office", "front desk", "réception", "reception", "concierge"),
+}
+
+_YEAR_MENTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"(?:minimum|min\.?|at least|über|mind\.?|>)\s*(\d{1,2})\s*\+?\s*"
+        r"(?:years?|yrs?|jahren?|jährige?|ans?)\b",
+        re.I,
+    ),
+    re.compile(
+        r"(\d{1,2})\s*\+?\s*(?:years?|yrs?)\s*(?:of\s+)?"
+        r"(?:experience|exp\.?|background|track record)\b",
+        re.I,
+    ),
+    re.compile(
+        r"(\d{1,2})\s*(?:ans?|années)\s*d[''']?\s*expérience\b",
+        re.I,
+    ),
+    re.compile(
+        r"(\d{1,2})\s*\+?\s*Jahren?\s+"
+        r"(?:Erfahrung|Berufserfahrung|Berufserfahrung\s+im)\b",
+        re.I,
+    ),
+    re.compile(
+        r"(\d{1,2})\s*\+?\s*(?:years?|yrs?|jahren?)\b[^.]{0,50}\b"
+        r"(?:in|within|inside|im|dans|en|au sein)\b",
+        re.I,
+    ),
+)
+
 _TECHNICAL_SKILL_GROUPS: list[list[str]] = [
     [
         "c++",
@@ -105,17 +156,9 @@ def _get_model() -> SentenceTransformer:
 
 def _profile_text(profile: UserProfile) -> str:
     """Build a text representation focused on role, skills, and qualifications."""
-    parts = []
-    if profile.summary:
-        parts.append(profile.summary)
-    if profile.skills:
-        parts.append("Skills: " + ", ".join(profile.skills))
-    if profile.experience:
-        for exp in profile.experience[:5]:
-            parts.append(exp[:300])
-    if profile.certifications:
-        parts.append("Certifications: " + ", ".join(profile.certifications))
-    return "\n".join(parts)
+    from .profile_matching import build_matching_profile_text
+
+    return build_matching_profile_text(profile)
 
 
 def _job_text(job: JobListing) -> str:
@@ -150,6 +193,82 @@ def _industry_overlap(industries: list[str], job_text: str) -> float:
     return hits / len(industries)
 
 
+def _expand_pivot_sector_terms(keywords: list[str]) -> list[str]:
+    """Flatten config target-industry keywords plus light synonyms for matching JDs."""
+    seen: set[str] = set()
+    terms: list[str] = []
+    for raw in keywords:
+        k = raw.strip().lower()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        terms.append(k)
+        for syn in _SECTOR_SYNONYMS.get(k, ()):
+            s = syn.lower()
+            if s not in seen:
+                seen.add(s)
+                terms.append(s)
+    return sorted(terms, key=len, reverse=True)
+
+
+def _sector_term_in_window(window_lower: str, term: str) -> bool:
+    t = term.strip().lower()
+    if not t:
+        return False
+    if " " in t:
+        return t in window_lower
+    if len(t) <= 3:
+        return bool(re.search(rf"(?<![a-z]){re.escape(t)}(?![a-z])", window_lower))
+    return t in window_lower
+
+
+def _collect_year_mentions(text: str) -> list[tuple[int, int, int]]:
+    """Return (start, end, years) for year-of-experience phrases (deduped by start)."""
+    found: list[tuple[int, int, int]] = []
+    seen_starts: set[int] = set()
+    for pat in _YEAR_MENTION_PATTERNS:
+        for m in pat.finditer(text):
+            try:
+                y = int(m.group(1))
+            except (IndexError, ValueError):
+                continue
+            if not (2 <= y <= 40):
+                continue
+            if m.start() in seen_starts:
+                continue
+            seen_starts.add(m.start())
+            found.append((m.start(), m.end(), y))
+    return found
+
+
+def _pivot_sector_tenure_weight(job_text: str, sector_terms: list[str]) -> float:
+    """0–1: how strongly the JD ties long tenure to the pivot target sector (bad for pivoters)."""
+    if not job_text or not sector_terms:
+        return 0.0
+    text_lower = job_text.lower()
+    mentions = _collect_year_mentions(job_text)
+    if not mentions:
+        return 0.0
+    window_radius = 120
+    best = 0.0
+    for start, end, years in mentions:
+        if years < PIVOT_SECTOR_TENURE_MIN_YEARS:
+            continue
+        lo = max(0, start - window_radius)
+        hi = min(len(text_lower), end + window_radius)
+        window = text_lower[lo:hi]
+        if not any(_sector_term_in_window(window, term) for term in sector_terms):
+            continue
+        if years >= 10:
+            w = 1.0
+        elif years >= 7:
+            w = 0.95
+        else:
+            w = 0.85
+        best = max(best, w)
+    return best
+
+
 def embed_texts(texts: list[str]) -> np.ndarray:
     """Encode a list of strings into embeddings. Returns (N, dim) array."""
     model = _get_model()
@@ -166,6 +285,8 @@ def rank_jobs_by_similarity(
     jobs: list[JobListing],
     top_n: int = 10,
     pivot_mode: bool = False,
+    pivot_target_keywords: list[str] | None = None,
+    matching_text: str | None = None,
 ) -> list[tuple[JobListing, float]]:
     """Rank jobs by embedding similarity + industry keyword bonus.
 
@@ -177,12 +298,17 @@ def rank_jobs_by_similarity(
     "Account Manager at iGaming company" from "Account Manager at power
     electronics company."
 
+    When ``pivot_mode`` is True and ``pivot_target_keywords`` is set (from
+    config target industries), jobs that demand many years of experience in
+    that sector are penalised so pivoting candidates are not surfaced for
+    senior insider-only roles.
+
     Returns list of (job, score) tuples sorted best-first.
     """
     if not jobs:
         return []
 
-    role_str = _profile_text(profile)
+    role_str = matching_text if matching_text else _profile_text(profile)
     job_strs = [_job_text(j) for j in jobs]
     # Full descriptions for industry/skills checks — requirements are
     # typically near the bottom, well past the 500-char embedding window.
@@ -219,6 +345,21 @@ def rank_jobs_by_similarity(
     if penalised:
         logger.info("Skills mismatch penalty applied to %d jobs", penalised)
         scores = scores - MISMATCH_PENALTY * mismatch_scores
+
+    if pivot_mode and pivot_target_keywords:
+        sector_terms = _expand_pivot_sector_terms(pivot_target_keywords)
+        if sector_terms:
+            tenure_weights = np.array(
+                [_pivot_sector_tenure_weight(jf, sector_terms) for jf in job_full],
+            )
+            n_tenure = int(np.sum(tenure_weights > 0))
+            if n_tenure:
+                logger.info(
+                    "Pivot sector-tenure penalty applied to %d jobs (target sectors: %s)",
+                    n_tenure,
+                    ", ".join(pivot_target_keywords[:8]),
+                )
+                scores = scores - PIVOT_SECTOR_TENURE_PENALTY * tenure_weights
 
     ranked_indices = np.argsort(scores)[::-1]
     results = []

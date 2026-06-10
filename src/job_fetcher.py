@@ -22,6 +22,7 @@ def fetch_adzuna_jobs(
     results_per_page: int = 20,
     distance_km: int = 0,
     contract_type: str = "",
+    salary_min: int = 0,
     app_id: Optional[str] = None,
     app_key: Optional[str] = None,
 ) -> list[JobListing]:
@@ -32,6 +33,7 @@ def fetch_adzuna_jobs(
         distance_km: Radius in km around `location`. Only used when location is set.
                      0 means Adzuna default (exact area match).
         contract_type: "permanent", "contract", or "" (any).
+        salary_min: Minimum salary in local currency. 0 = no filter.
     """
     app_id = app_id or os.environ.get("ADZUNA_APP_ID")
     app_key = app_key or os.environ.get("ADZUNA_APP_KEY")
@@ -55,7 +57,17 @@ def fetch_adzuna_jobs(
         if distance_km > 0:
             params["distance"] = distance_km
     if contract_type:
-        params["contract_type"] = contract_type
+        ct = contract_type.lower().strip()
+        if ct == "permanent":
+            params["permanent"] = 1
+        elif ct == "contract":
+            params["contract"] = 1
+        elif ct == "full_time":
+            params["full_time"] = 1
+        elif ct == "part_time":
+            params["part_time"] = 1
+    if salary_min > 0:
+        params["salary_min"] = salary_min
 
     data = _request_with_retry(base_url, params)
 

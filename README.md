@@ -106,7 +106,12 @@ Edit `config.yaml` to adjust:
 | `output_dir` | Where generated files are saved |
 | `preferences.tone` | `formal` \| `semi-formal` \| `casual` \| `enthusiastic` \| `professional` |
 | `preferences.style` | `concise` \| `detailed` \| `balanced` |
+| `preferences.languages` | Override or merge CV languages (`languages_mode`: `override` \| `merge`) |
+| `preferences.search_profile_summary` | Extra text used only for job matching/ranking (not CV generation) |
 | `preferences.default_languages` | Fallback language proficiencies if not extracted from CV |
+| `job_search.description_language_min_tier` | Min tier to keep non-English postings (`3` = B1, `4` = B2) |
+| `job_search.min_similarity` | Embedding score cutoff (default `0.25` when career pivot enabled) |
+| `job_search.search_nationwide` | `false` keeps search within `locations` + `radius_km` only |
 | `job_search.country` | Adzuna country code (`ch`, `de`, `at`, `fr`, `it`, `gb`, `us`) |
 | `job_search.locations` | List of cities/regions to search (e.g. `["Basel", "Zürich"]`) |
 | `job_search.radius_km` | Search radius in km around each location |
@@ -121,7 +126,7 @@ Edit `config.yaml` to adjust:
 
 ```
 job-finder/
-├── cv_input/              # Drop your CVs here (PDF, Word)
+├── cv_input/              # Drop your CVs here (PDF, Word, .txt supplements)
 ├── output/                # Generated CVs and cover letters
 ├── config.yaml            # All user-facing configuration
 ├── .env                   # API keys (create from .env.example)
