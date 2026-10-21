@@ -1,0 +1,61 @@
+# Weekly job-search report for Alexandra Dedu - 2026-10-21
+
+## Executive summary
+
+- CV input status: `cv_input/` contains only `.gitkeep`; no Alexandra CV PDF/DOCX was available in this repository on this run.
+- Because no CV could be read, the search used only the factual candidate summary provided in the workflow prompt: iGaming, account management, customer-facing operations, sales, relationship management, and coordination.
+- Tailored CV and cover-letter documents were not generated. Creating them without a CV would risk inventing education, employers, dates, languages, achievements, and contact details.
+- The strongest verified opportunities this week are concentrated in Basel/Rheinfelden and Swiss-remote customer-success/account-management roles. Most require German at fluent, Swiss German, or C1/C2 level; those roles are flagged below because Alexandra's actual language level could not be verified from a CV.
+
+## Search method and quality filter
+
+Searched current postings from official company careers pages, ATS pages, and reputable Swiss job boards. Removed or downgraded duplicates, expired pages, roles whose official pages returned 404/list-only pages, internships, roles clearly below the requested level, and roles that require specialist domain backgrounds with no verified CV support. No applications, accounts, employer contacts, or messages were created.
+
+## Ranked open roles
+
+| Rank | Role | Employer | Location / work style | Source and application link | Posting date | Language requirements | Compensation | Match rationale | Tailored documents |
+|---:|---|---|---|---|---|---|---|---|---|
+| 1 | Senior Client Service Manager | Albedis | Basel or Zurich; home office possible | Albedis official careers: https://www.albedis.com/jobs/2369523679-senior-client-service-manager-en/ | 2026-10-02; jobs.ch mirror 2026-10-09 | (Swiss) German fluent and English fluent; French/Italian advantageous. **German above B2 flagged.** | Not listed | Best direct match: strategic key-account management, service coordination, business development, stakeholder management, reporting, and cross-/upselling. Service-oriented industries are explicitly accepted, which makes the iGaming/account-management background plausibly transferable. | No - CV absent |
+| 2 | Senior Account Manager | Descartes Systems Group | Rheinfelden, Switzerland; remote/flexible with Swiss travel | Descartes careers: https://careers.descartes.com/job/senior-account-manager/ | 2026-10-05; posted 2 weeks ago | Fluent Swiss German and English; French/Italian advantageous. **German above B2 flagged.** | Not listed; posting says competitive compensation and benefits | Strong location and role fit: owns Swiss customer and partner relationships, renewals, retention, customer satisfaction, and upsell growth in B2B SaaS/logistics technology. Caveat: asks for EDI, P2P/O2C and e-invoicing domain knowledge, which could be a gap without CV evidence. | No - CV absent |
+| 3 | Customer Success Manager Scaled Accounts - Switzerland & Austria | Matrix42 | Remote Switzerland / Rothenburg; full-time permanent | Matrix42 Personio: https://matrix42.jobs.personio.com/job/2840878?language=en | Current official listing; aggregator seen 2026-10-13/17 | Fluency in English and (Swiss) German. **German above B2 flagged.** | Not listed | Very strong customer-success/account-management fit: manages 100-150 customers, drives adoption, renewals, retention, growth, escalations, CRM hygiene, and cross-functional coordination for enterprise software. Basel commute not needed due Swiss-remote setup. | No - CV absent |
+| 4 | Customer Success Manager Digital - Switzerland & Austria | Matrix42 | Remote Switzerland / Rothenburg; full-time permanent | Matrix42 Personio: https://matrix42.jobs.personio.com/job/2840916?language=en | Current official listing | Fluency in English and (Swiss) German. **German above B2 flagged.** | Not listed | Strong fit if Alexandra has customer-operations and lifecycle/CRM experience: builds digital customer journeys, onboarding/adoption/renewal workflows, customer communications, and coordinates Marketing, RevOps, Sales, Support, and partners. More operations-heavy than classic account management. | No - CV absent |
+| 5 | Customer Success Manager, Hospital IT Software | IQVIA | Basel or Risch-Rotkreuz; hybrid; full-time | IQVIA careers: https://jobs.iqvia.com/en/jobs/R1564554-0 | Employer/Workday result 2026-09-11 | German must-have; French strong nice-to-have. **Potential German above B2 flagged.** | Not listed | Strong customer-success structure: onboarding, implementation coordination, stakeholder management, renewals, account development, requirements gathering, risk/escalation management. Caveat: requires Health IT, HIS, HL7/FHIR/API integration knowledge, so suitability depends heavily on unverified CV details. | No - CV absent |
+| 6 | Kundenberater/in Beratungszentrum | WIR Bank Genossenschaft | Basel, 80-100%; home office up to 50% at 100% workload | jobs.ch: https://www.jobs.ch/de/stellenangebote/detail/83ea3058-52a5-43b7-ae98-5cfd6a00ee97/ | 2026-10-20 | Secure German communication; other Swiss national languages a plus. **German B2+ likely flagged.** | Not listed; benefit note CHF 180 CHW/month meal allowance | Good local client-service/sales fit: phone consulting, written customer care, active acquisition, on-site service desk, sales and representation. Caveat: requires completed banking education and 1-2 years banking experience, not verified due missing CV. | No - CV absent |
+| 7 | Private Clients Consultant, 60-100% | VZ VermögensZentrum | Rheinfelden, permanent | VZ official careers: https://jobs.vermoegenszentrum.ch/offene-stellen/private-clients-consultant/bdae72dc-f4ba-457e-9eea-b72e0150bd31 | jobs.ch 2026-10-19; official listing current | German fluent. **German above B2 flagged.** | Not listed | Local relationship-management role with an existing client portfolio, structured training, and a clear corporate career path in financial consulting. Caveat: requires bank/insurance apprenticeship and initial private-client advisory experience, not verified. | No - CV absent |
+| 8 | Customer Success Manager | Bottomline | Zurich, on-site; Switzerland-based | Greenhouse: https://job-boards.greenhouse.io/bottomlinetechnologies/jobs/8615320002 | Official listing current; search result showed 2026-07-08 with reposting signals in October | C1 or C2 German speaking/writing. **German above B2 flagged.** | Not listed | Strong regulated-sector SaaS match: banking/payments CSM focused on retention, adoption, customer health, monthly reviews, issue resolution, and upsell/cross-sell. Lower rank due Zurich/on-site requirement and high German level. | No - CV absent |
+| 9 | Customer Success Manager, Switzerland | Salesforce | Zurich; office 3 days/week | Salesforce Workday: https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/Customer-Success-Manager--Switzerland_JR362285 | 2026-10-04 | German (preferably Swiss German) or French, plus English. **Potential German/French above B2 flagged.** | Not listed | Excellent employer and customer-success career path, focused on Signature Success customers, stakeholder orchestration, renewals/expansion, and translating technical needs into business value. Lower rank because it asks for 5+ years technical CSM/SaaS/consulting/architecture and regular Zurich office presence. | No - CV absent |
+| 10 | Client Service Specialist (100%) | Bank CIC (Schweiz) AG | Basel, 80-100%, permanent | jobs.ch: https://www.jobs.ch/en/vacancies/detail/28cdd9f7-c73f-460e-8b1d-794008b08cfa/ | 2026-09-07 | Very good French and German. **German/French above B2 flagged.** | Not listed | Basel regulated-sector client-service/onboarding role involving legal-entity account openings, KYC/Avaloq data, FATCA/CRS/VSB updates, second-level support, process updates, and internal stakeholder coordination. Lower rank due specialist banking/compliance requirements. | No - CV absent |
+
+## Top-role tailoring notes if CV becomes available
+
+1. **Albedis**: emphasize key-account development, client retention, service coordination, cross-functional delivery, negotiation, and reporting from account-management/iGaming operations experience.
+2. **Descartes**: emphasize B2B relationship ownership, renewals, upsell, partner coordination, customer satisfaction, and any logistics/payments/API/process experience if present in the CV. Do not claim EDI/P2P/O2C expertise unless the CV supports it.
+3. **Matrix42 Scaled Accounts**: emphasize portfolio management, customer lifecycle ownership, renewals, CRM discipline, stakeholder communication, and commercial/customer-outcome mindset.
+4. **Matrix42 Digital**: emphasize customer operations, onboarding/adoption journeys, lifecycle communications, process improvement, CRM workflows, and coordination across Sales/Support/Marketing.
+5. **IQVIA**: emphasize onboarding, implementation coordination, customer success, requirements gathering, and stakeholder management; avoid health-IT technical claims unless present in the CV.
+
+## Excluded or downgraded roles
+
+| Role / employer | Reason |
+|---|---|
+| Key Account Manager Konsumentenklebstoffe - Henkel | High-fit Basel KAM snippet, but both official Henkel URLs returned 404 through live fetch. Not ranked as open. |
+| Account Manager Basel - dbi services | Search snippets and jobs.ch showed a relevant Basel IT-services AM role, but official dbi page and jobs.ch detail fetch both returned 404. Not ranked as open. |
+| Customer Service Manager - Medartis | Search snippets/jobs.ch showed a Basel role, but the official Medartis Solique page now shows the broader openings list without this job. Aggregator also indicated applications temporarily suspended. |
+| Enterprise Account Manager - Diligent | Search result looked strong for Zurich GRC SaaS, but the live Greenhouse page showed current openings without the Zurich Enterprise Account Manager posting. Treated as closed. |
+| Institutional Sales & Relationship Manager - Basler Kantonalbank | jobs.ch search snippet looked current, but the live detail URL resolved to a generic jobs list rather than the posting. Also highly specialized in asset-management product sales. |
+| Customer Success Manager - Lyfegen | Application deadline shown as 2026-10-10; expired before this run. |
+| Customer Service Agent - Brenntag | Official Workday fetch returned empty content and an aggregator indicated applications temporarily suspended; also more junior/order-processing oriented than the target level. |
+| Customer Success Manager - Dalux Basel | Current search did not show an open Basel CSM role; evidence pointed to older 2025 hiring activity or non-Basel current roles. |
+| Outside Account Manager - Cannondale | Western Switzerland territory, cycling/outdoor industry network requirement, frequent travel, and fluency in French/German/English; less direct and likely language/sector stretch. |
+| Salesforce senior/global CSM variants outside Switzerland | Several were Dublin, US, or global/senior-manager postings rather than Basel/Swiss-accessible roles. |
+
+## Document generation status
+
+Tailored CV and cover-letter documents for top roles were intentionally skipped because no CV file exists under `cv_input/` beyond `.gitkeep`. Generated application documents would require verified facts such as Alexandra's employment history, education, dates, languages, contact information, and measurable achievements. This run therefore generated only the weekly report and a document-generation notice.
+
+## Next actions for Alexandra
+
+- Add the current CV as PDF or DOCX under `cv_input/` before the next run.
+- Confirm language levels, especially German/Swiss German and French, because most high-quality Basel and Swiss corporate roles require fluent German or stronger.
+- If language fit is confirmed, prioritize Albedis, Descartes, and Matrix42 Scaled Accounts first; they show the cleanest overlap with account management, customer success, retention, stakeholder management, and operational coordination.
+- For regulated-sector roles, only proceed if the CV supports the required banking, compliance, financial-advisory, healthcare IT, or technical SaaS experience.
